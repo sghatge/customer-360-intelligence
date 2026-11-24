@@ -11,7 +11,7 @@ Time budget: 6–8 hours/week. Suggested cadence: 2 × 2-hour build blocks + 1 �
 | 5 | Real-Time CDP segmentation | Cart-abandoned-60m and lapsed-90d segment specs | Entry, exit and evaluation criteria documented |
 | 6 | Query Service concepts | SQL examples and query cost checklist | Avoid unbounded scans; define time/partition filters |
 | 7 | Activation and downstream contracts | AJO-ready audience export contract | Audience eligibility and consent included |
-| 8 | Capstone and portfolio demo | Customer 360 walkthrough and architecture | Reproducible demo, tests, limitations and README complete |
+| 8 | Capstone and portfolio demo | Customer 360 walkthrough, correlated lifecycle event, Salesforce review proposal and architecture evidence | Reproducible demo, contract tests, safety boundaries and README complete |
 
 ## Weekly deliverable discipline
 1. Read the week's concept notes.

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'src'))
 from aep_engine import validate_against_contract, detect_identity_collisions, assess_identity_conflicts, evaluate_lab_audience, apply_entry_exit_rule, run_read_only_sql
+from capstone import build_customer_360_capstone
 
 st.set_page_config(page_title="AEP Customer 360 Lab", page_icon="🧩", layout="wide")
 st.title("🧩 Adobe Experience Platform | Customer 360 Lab")
@@ -65,7 +66,7 @@ c2.metric("Experience events",len(st.session_state.events))
 c3.metric("Identity namespaces",3)
 c4.metric("Lab ingestions",len(st.session_state.ingest_log))
 
-tabs = st.tabs(["Profile explorer","Identity graph","Audience builder","XDM schema explorer","Event ingestion lab","Activation preview","Enterprise rule engine","Query Service SQL lab","AJO journey preview","Lifecycle integration hub","Gateway operations"])
+tabs = st.tabs(["Profile explorer","Identity graph","Audience builder","XDM schema explorer","Event ingestion lab","Activation preview","Enterprise rule engine","Query Service SQL lab","AJO journey preview","Lifecycle integration hub","Gateway operations","Customer 360 Capstone"])
 with tabs[0]:
     selected = st.selectbox("Choose a customer",PROFILES,format_func=lambda p:f"{p['name']} · {p['crm_id']}")
     left,right = st.columns(2)
@@ -438,6 +439,92 @@ with tabs[10]:
         except httpx.HTTPError as exc:
             st.error(f"Gateway connection failed: {exc}")
             st.caption("Check the gateway URL, API key, network access and gateway health endpoint.")
+
+with tabs[11]:
+    st.subheader("Customer 360 Capstone · End-to-end lifecycle")
+    st.caption("A guided, correlated simulation across AEP → Real-Time CDP → AJO → Salesforce. Synthetic records only.")
+    left, middle, right = st.columns(3)
+    with left:
+        capstone_person = st.selectbox(
+            "Capstone customer", PROFILES, key="capstone_customer",
+            format_func=lambda p: f"{p['name']} · {p['crm_id']}"
+        )
+    with middle:
+        capstone_journey = st.selectbox(
+            "Journey scenario",
+            ["Abandoned cart recovery", "Post-purchase follow-up", "VIP service follow-up"],
+            key="capstone_journey"
+        )
+    with right:
+        capstone_channel = st.selectbox(
+            "Preferred channel", ["EMAIL", "SMS", "NONE"],
+            key="capstone_channel"
+        )
+
+    capstone = build_customer_360_capstone(
+        capstone_person, st.session_state.events,
+        capstone_journey, capstone_channel
+    )
+    st.divider()
+    st.markdown("#### Customer 360 decision")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Customer", capstone["customer"]["crm_id"])
+    k2.metric("Matching trigger events", capstone["matched_event_count"])
+    k3.metric("Channel consent", capstone["consent_status"])
+    k4.metric("Journey decision", capstone["decision"])
+    if capstone["eligible"]:
+        st.success("Journey is eligible in this synthetic simulation. No message is sent.")
+    else:
+        st.error(f"Journey entry blocked: {capstone['decision']}. No message is sent.")
+
+    st.markdown("#### End-to-end event timeline")
+    st.dataframe(pd.DataFrame(capstone["timeline"]), use_container_width=True, hide_index=True)
+    st.caption("The correlation ID links the lifecycle event and Salesforce follow-up proposal.")
+
+    st.markdown("#### Contract validation")
+    event_errors = validate_against_contract(
+        capstone["lifecycle_event"], "contracts/customer-lifecycle-event.json"
+    )
+    action_errors = validate_against_contract(
+        capstone["salesforce_action"], "contracts/salesforce-followup-action.json"
+    )
+    v1, v2 = st.columns(2)
+    with v1:
+        if event_errors:
+            st.error("Lifecycle event contract failed")
+            for error in event_errors:
+                st.write(f"- {error}")
+        else:
+            st.success("Lifecycle event contract: VALID")
+    with v2:
+        if action_errors:
+            st.error("Salesforce proposal contract failed")
+            for error in action_errors:
+                st.write(f"- {error}")
+        else:
+            st.success("Salesforce proposal contract: VALID")
+
+    st.markdown("#### Salesforce human-review proposal")
+    st.json(capstone["salesforce_action"])
+    st.warning("The Salesforce task remains PENDING_HUMAN_APPROVAL. No CRM record is created and no external system is called.")
+
+    event_bytes = json.dumps(capstone["lifecycle_event"], indent=2).encode("utf-8")
+    action_bytes = json.dumps(capstone["salesforce_action"], indent=2).encode("utf-8")
+    d1, d2 = st.columns(2)
+    with d1:
+        st.download_button(
+            "Download lifecycle event JSON", event_bytes,
+            file_name="customer_360_lifecycle_event.json",
+            mime="application/json", key="download_capstone_event"
+        )
+    with d2:
+        st.download_button(
+            "Download Salesforce review proposal JSON", action_bytes,
+            file_name="customer_360_salesforce_review.json",
+            mime="application/json", key="download_capstone_action"
+        )
+    st.caption("Portfolio evidence pack: two correlated JSON artifacts, contract validation results and the lifecycle timeline.")
+    st.info("Safety boundary: synthetic data only. execution_performed = false. AEP, AJO and Salesforce are not connected.")
 
 with st.expander("Architecture and learning checkpoints"):
     st.markdown("**XDM:** model schemas and field groups before ingestion. **Datasets:** store records conforming to schemas; Profile-enabled datasets contribute to Real-Time Customer Profile when correctly configured. **Identity:** CRM ID, ECID and email are separate namespace-backed signals. **Consent:** evaluate current purpose and channel permissions before activation. **Activation:** downstream hand-off is simulated here and requires tenant configuration in production.")
