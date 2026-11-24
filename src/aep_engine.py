@@ -61,6 +61,61 @@ def detect_identity_collisions(profiles: list[dict[str, Any]]) -> list[dict[str,
                                "status": "REVIEW_REQUIRED", "action": "DO_NOT_AUTO_MERGE"})
     return collisions
 
+def evaluate_lab_audience(
+    profiles: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    allowed_tiers: set[str],
+    min_ltv: float,
+    max_recency_days: int,
+    channel: str,
+    required_event_type: str | None = None,
+) -> list[dict[str, Any]]:
+    """Explainable audience qualification over the app's synthetic profile shape."""
+    if channel not in {"Email", "SMS"}:
+        raise ValueError("channel must be 'Email' or 'SMS'")
+    consent_field = "email_ok" if channel == "Email" else "sms_ok"
+    events_by_customer: dict[str, set[str]] = {}
+    for event in events:
+        customer_id = event.get("crm_id")
+        if customer_id:
+            events_by_customer.setdefault(customer_id, set()).add(event.get("event_type", ""))
+    results = []
+    for profile in profiles:
+        crm_id = profile.get("crm_id")
+        segment_match = (
+            profile.get("tier") in allowed_tiers
+            and float(profile.get("ltv", 0) or 0) >= min_ltv
+            and int(profile.get("last_seen", 10**9) or 0) <= max_recency_days
+        )
+        event_match = (
+            required_event_type in (None, "Any event")
+            or required_event_type in events_by_customer.get(crm_id, set())
+        )
+        consent_value = profile.get(consent_field)
+        consent_eligible = consent_value is True
+        eligible = bool(segment_match and event_match and consent_eligible)
+        if not segment_match:
+            reason = "NOT_IN_SEGMENT"
+        elif not event_match:
+            reason = "REQUIRED_EVENT_NOT_FOUND"
+        elif not consent_eligible:
+            reason = "CONSENT_NOT_GRANTED"
+        else:
+            reason = "ELIGIBLE"
+        results.append({
+            "crm_id": crm_id,
+            "name": profile.get("name"),
+            "tier": profile.get("tier"),
+            "ltv": profile.get("ltv", 0),
+            "last_seen": profile.get("last_seen"),
+            "consent": "GRANTED" if consent_value is True else "DENIED_OR_UNKNOWN",
+            "segment_match": bool(segment_match),
+            "event_match": bool(event_match),
+            "eligible": eligible,
+            "reason": reason,
+        })
+    return results
+
 def evaluate_audience(profile: dict[str, Any], events: list[dict[str, Any]],
                       channel: str, allowed_tiers: set[str], min_ltv: float,
                       max_recency_days: int) -> dict[str, Any]:
