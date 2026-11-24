@@ -95,3 +95,37 @@ def test_event_and_audit_survive_app_module_reload():
     audit_result = restarted_client.get("/v1/audit", headers=headers())
     assert result.json()["count"] == 1
     assert audit_result.json()["records"][-1]["status"] == "ACCEPTED"
+
+def test_retry_job_schedules_exponential_backoff():
+    created = client.post("/v1/retries", json={
+        "correlationId": "CORR-C1-1", "taskType": "AEP_EVENT_FORWARD",
+        "payload": {"eventId": "E-1"}, "maxAttempts": 3
+    }, headers=headers()).json()
+    failed = client.post(f"/v1/retries/{created['jobId']}/fail",
+                         json={"error": "temporary downstream outage"}, headers=headers()).json()
+    assert failed["status"] == "RETRY_SCHEDULED"
+    assert failed["attempts"] == 1
+    assert failed["nextAttemptAt"] is not None
+    listed = client.get("/v1/retries?status=RETRY_SCHEDULED", headers=headers()).json()
+    assert listed["count"] == 1
+
+def test_retry_job_moves_to_dead_letter_after_max_attempts():
+    created = client.post("/v1/retries", json={
+        "correlationId": "CORR-C1-2", "taskType": "AJO_OUTCOME_FORWARD",
+        "payload": {"outcome": "FAILED"}, "maxAttempts": 2
+    }, headers=headers()).json()
+    first = client.post(f"/v1/retries/{created['jobId']}/fail",
+                        json={"error": "temporary error"}, headers=headers()).json()
+    second = client.post(f"/v1/retries/{created['jobId']}/fail",
+                         json={"error": "still failing"}, headers=headers()).json()
+    assert first["status"] == "RETRY_SCHEDULED"
+    assert second["status"] == "DEAD_LETTER"
+    assert second["nextAttemptAt"] is None
+    dead = client.get("/v1/retries?status=DEAD_LETTER", headers=headers()).json()
+    assert dead["count"] == 1
+
+def test_retry_rejects_invalid_max_attempts():
+    response = client.post("/v1/retries", json={
+        "correlationId": "C", "taskType": "TEST", "payload": {}, "maxAttempts": 99
+    }, headers=headers())
+    assert response.status_code == 422
