@@ -51,7 +51,7 @@ c2.metric("Experience events",len(st.session_state.events))
 c3.metric("Identity namespaces",3)
 c4.metric("Lab ingestions",len(st.session_state.ingest_log))
 
-tabs = st.tabs(["Profile explorer","Identity graph","Audience builder","XDM schema explorer","Event ingestion lab","Activation preview","Enterprise rule engine","Query Service SQL lab","AJO journey preview"])
+tabs = st.tabs(["Profile explorer","Identity graph","Audience builder","XDM schema explorer","Event ingestion lab","Activation preview","Enterprise rule engine","Query Service SQL lab","AJO journey preview","Lifecycle integration hub"])
 with tabs[0]:
     selected = st.selectbox("Choose a customer",PROFILES,format_func=lambda p:f"{p['name']} · {p['crm_id']}")
     left,right = st.columns(2)
@@ -252,6 +252,41 @@ with tabs[8]:
     handoff = {"source":"AEP Customer 360 Lab","destination":"Adobe Journey Optimizer","journey_pattern":journey_type,"entry_trigger":trigger,"channel":audience["channel"],"eligible_synthetic_profile_ids":audience["eligible_ids"],"steps":steps,"activation_status":"SIMULATED_NOT_SENT"}
     st.code(json.dumps(handoff, indent=2), language="json")
     st.warning("This is a conceptual journey hand-off only. No AJO journey, profile, message or campaign is created or activated.")
+
+
+with tabs[9]:
+    st.subheader("Cross-platform customer lifecycle")
+    st.caption("A synthetic customer journey across AEP → AJO → Salesforce → AEP. Contract-driven simulation only.")
+    person = st.selectbox("Lifecycle customer", PROFILES, key="lifecycle_customer", format_func=lambda p:f"{p['name']} · {p['crm_id']}")
+    journey = st.selectbox("Lifecycle scenario", ["Abandoned cart recovery","Post-purchase follow-up","VIP service follow-up"])
+    preferred = st.selectbox("Proposed channel", ["EMAIL","SMS","NONE"])
+    email_consent = "GRANTED" if person["email_ok"] else "DENIED"
+    sms_consent = "GRANTED" if person["sms_ok"] else "DENIED"
+    channel_ok = (preferred=="EMAIL" and email_consent=="GRANTED") or (preferred=="SMS" and sms_consent=="GRANTED") or preferred=="NONE"
+    correlation_id = f"CORR-{person['crm_id']}-{journey.split()[0].upper()}-001"
+    lifecycle_steps = [
+        {"step":"AEP audience qualification","source":"AEP","eventType":"audience_qualified","status":"ELIGIBLE","reason":"Synthetic profile selected"},
+        {"step":"AJO journey entry","source":"AJO","eventType":"journey_entered","status":"SIMULATED","reason":journey+" entry condition met"},
+        {"step":"AJO channel decision","source":"AJO","eventType":"message_eligible" if channel_ok else "message_blocked","status":"ELIGIBLE" if channel_ok else "BLOCKED","reason":"Consent granted" if channel_ok else "Selected channel consent is not granted"},
+        {"step":"Journey exit checkpoint","source":"AJO","eventType":"journey_exited","status":"EXITED","reason":"Simulated completion checkpoint"},
+        {"step":"Salesforce follow-up proposal","source":"SALESFORCE","eventType":"crm_followup_requested","status":"PENDING_REVIEW","reason":"Human approval required before CRM write"}
+    ]
+    st.dataframe(pd.DataFrame(lifecycle_steps),use_container_width=True,hide_index=True)
+    event_payload = {"eventId":"LCE-"+correlation_id,"correlationId":correlation_id,"occurredAt":datetime.now(timezone.utc).isoformat(),"source":"INTEGRATION_SIMULATOR","eventType":"message_eligible" if channel_ok else "message_blocked","customer":{"crmId":person["crm_id"],"ecid":person["ecid"],"email":person["email"]},"journey":{"journeyId":"JRN-LAB-001","journeyName":journey,"step":"channel_decision","channel":preferred},"consent":{"email":email_consent,"sms":sms_consent},"status":"ELIGIBLE" if channel_ok else "BLOCKED","reason":"Consent granted" if channel_ok else "Selected channel consent is not granted","metrics":{"cartValue":0,"currency":"INR"}}
+    action_payload = {"requestId":"SF-"+correlation_id,"correlationId":correlation_id,"customer":{"crmId":person["crm_id"],"recordType":"Contact"},"actionType":"CREATE_TASK","subject":"Follow up: "+journey,"description":"Review journey outcome and contact customer through an approved channel.","priority":"Normal","status":"PENDING_HUMAN_APPROVAL","requiresHumanApproval":True,"sourceJourney":"JRN-LAB-001"}
+    st.markdown("**Shared lifecycle event contract**")
+    try:
+        errors = validate_against_contract(event_payload,"contracts/customer-lifecycle-event.json")
+        if errors:
+            for error in errors: st.error(error)
+        else: st.success("Lifecycle event passes the shared JSON Schema contract.")
+    except Exception as exc:
+        st.error(f"Contract validation unavailable: {exc}")
+    st.json(event_payload)
+    st.markdown("**Salesforce follow-up request**")
+    st.json(action_payload)
+    st.warning("No AJO message is sent and no Salesforce record is created. The CRM action remains PENDING_HUMAN_APPROVAL.")
+    st.download_button("Download lifecycle event JSON",json.dumps(event_payload,indent=2).encode("utf-8"),file_name="customer_lifecycle_event.json",mime="application/json")
 
 with st.expander("Architecture and learning checkpoints"):
     st.markdown("**XDM:** model schemas and field groups before ingestion. **Datasets:** store records conforming to schemas; Profile-enabled datasets contribute to Real-Time Customer Profile when correctly configured. **Identity:** CRM ID, ECID and email are separate namespace-backed signals. **Consent:** evaluate current purpose and channel permissions before activation. **Activation:** downstream hand-off is simulated here and requires tenant configuration in production.")
