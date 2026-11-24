@@ -10,30 +10,37 @@ client = TestClient(gateway.app)
 TOKEN = "test-gateway-key"
 
 def setup_function():
-    gateway.EVENTS.clear()
-    gateway.ACTIONS.clear()
-    gateway.AUDIT.clear()
     os.environ["GATEWAY_API_KEY"] = TOKEN
+    os.environ["GATEWAY_DB_PATH"] = str(Path(__file__).parent / "test_gateway.sqlite")
+    path = Path(os.environ["GATEWAY_DB_PATH"])
+    if path.exists():
+        path.unlink()
+    gateway.init_db()
+
+def teardown_function():
+    path = Path(os.environ["GATEWAY_DB_PATH"])
+    if path.exists():
+        path.unlink()
 
 def headers():
-    return {"Authorization":f"Bearer {TOKEN}"}
+    return {"Authorization": f"Bearer {TOKEN}"}
 
 def event(event_id="E-1"):
     return {
-        "eventId":event_id,"correlationId":"CORR-C1-1",
-        "occurredAt":"2026-11-24T08:00:00Z","source":"AJO",
-        "eventType":"message_blocked","customer":{"crmId":"C1"},
-        "journey":{"journeyId":"J1","journeyName":"Cart recovery","step":"consent","channel":"SMS"},
-        "consent":{"sms":"DENIED"},"status":"BLOCKED","reason":"SMS consent denied"
+        "eventId": event_id, "correlationId": "CORR-C1-1",
+        "occurredAt": "2026-11-24T08:00:00Z", "source": "AJO",
+        "eventType": "message_blocked", "customer": {"crmId": "C1"},
+        "journey": {"journeyId": "J1", "journeyName": "Cart recovery", "step": "consent", "channel": "SMS"},
+        "consent": {"sms": "DENIED"}, "status": "BLOCKED", "reason": "SMS consent denied"
     }
 
 def action():
     return {
-        "requestId":"SF-1","correlationId":"CORR-C1-1",
-        "customer":{"crmId":"C1","recordType":"Contact"},
-        "actionType":"CREATE_TASK","subject":"Review journey","priority":"Normal",
-        "status":"PENDING_HUMAN_APPROVAL","requiresHumanApproval":True,
-        "sourceJourney":"Cart recovery"
+        "requestId": "SF-1", "correlationId": "CORR-C1-1",
+        "customer": {"crmId": "C1", "recordType": "Contact"},
+        "actionType": "CREATE_TASK", "subject": "Review journey", "priority": "Normal",
+        "status": "PENDING_HUMAN_APPROVAL", "requiresHumanApproval": True,
+        "sourceJourney": "Cart recovery"
     }
 
 def test_health_is_public():
@@ -78,3 +85,13 @@ def test_audit_trail_records_accepted_event():
     records = client.get("/v1/audit", headers=headers()).json()["records"]
     assert records[-1]["action"] == "EVENT_INGEST"
     assert records[-1]["status"] == "ACCEPTED"
+
+def test_event_and_audit_survive_app_module_reload():
+    client.post("/v1/events", json=event(), headers=headers())
+    import importlib
+    importlib.reload(gateway)
+    restarted_client = TestClient(gateway.app)
+    result = restarted_client.get("/v1/events/CORR-C1-1", headers=headers())
+    audit_result = restarted_client.get("/v1/audit", headers=headers())
+    assert result.json()["count"] == 1
+    assert audit_result.json()["records"][-1]["status"] == "ACCEPTED"
