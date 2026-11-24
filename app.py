@@ -2,6 +2,10 @@ import json
 from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'src'))
+from aep_engine import validate_against_contract, detect_identity_collisions, apply_entry_exit_rule
 
 st.set_page_config(page_title="AEP Customer 360 Lab", page_icon="🧩", layout="wide")
 st.title("🧩 Adobe Experience Platform | Customer 360 Lab")
@@ -47,7 +51,7 @@ c2.metric("Experience events",len(st.session_state.events))
 c3.metric("Identity namespaces",3)
 c4.metric("Lab ingestions",len(st.session_state.ingest_log))
 
-tabs = st.tabs(["Profile explorer","Identity graph","Audience builder","XDM schema explorer","Event ingestion lab","Activation preview"])
+tabs = st.tabs(["Profile explorer","Identity graph","Audience builder","XDM schema explorer","Event ingestion lab","Activation preview","Enterprise rule engine"])
 with tabs[0]:
     selected = st.selectbox("Choose a customer",PROFILES,format_func=lambda p:f"{p['name']} · {p['crm_id']}")
     left,right = st.columns(2)
@@ -174,6 +178,37 @@ with tabs[5]:
     st.warning("This is an activation contract preview only. No audience is exported to AJO or Salesforce and no message is sent.")
     st.markdown("**Production integration checkpoints**")
     st.markdown("1. Confirm audience qualification and identity mapping.\n2. Enforce consent, suppression and destination-specific policies.\n3. Define destination schema, authentication and retry handling.\n4. Reconcile audience counts and activation failures.\n5. Maintain an auditable activation and consent evidence trail.")
+
+with tabs[6]:
+    st.subheader("Enterprise validation and identity governance")
+    st.markdown("**1. Contract validation**")
+    sample_event = {"eventId":"EVT-LAB-9001","eventType":"addToCart","timestamp":datetime.now(timezone.utc).isoformat(),"identity":{"crmId":"C-1001","ecid":"ECID-9001"},"commerce":{"productId":"SKU-DEMO-01","currency":"INR","value":2499}}
+    raw_contract = st.text_area("ExperienceEvent JSON", json.dumps(sample_event, indent=2), height=220, key="contract_json")
+    if st.button("Validate against versioned JSON Schema", key="validate_contract"):
+        try:
+            contract_errors = validate_against_contract(json.loads(raw_contract), "contracts/experience-event.json")
+            if contract_errors:
+                for error in contract_errors: st.error(error)
+            else:
+                st.success("Passed the repository's synthetic ExperienceEvent JSON Schema contract.")
+        except Exception as exc:
+            st.error(f"Validation could not run: {exc}")
+    st.divider()
+    st.markdown("**2. Identity collision review**")
+    collision_demo = [
+        {"crmId":"C-2001","email":"shared@example.test","source":"CRM"},
+        {"crmId":"C-2002","email":"SHARED@example.test","source":"Commerce"}
+    ]
+    collisions = detect_identity_collisions(collision_demo)
+    st.dataframe(pd.DataFrame(collisions), use_container_width=True, hide_index=True)
+    st.warning("Shared email across distinct CRM IDs is flagged for review. The lab never auto-merges these records.")
+    st.divider()
+    st.markdown("**3. Audience membership transitions**")
+    was_member = st.toggle("Previously in audience", value=False)
+    currently_eligible = st.toggle("Currently meets segment and consent rules", value=True)
+    transition = apply_entry_exit_rule(was_member, currently_eligible)
+    st.metric("Membership action", transition)
+    st.caption("Illustrative deterministic transition: ENTER, EXIT, REMAIN or NOT_IN_AUDIENCE. This is not Adobe's native segment evaluation engine.")
 
 with st.expander("Architecture and learning checkpoints"):
     st.markdown("**XDM:** model schemas and field groups before ingestion. **Datasets:** store records conforming to schemas; Profile-enabled datasets contribute to Real-Time Customer Profile when correctly configured. **Identity:** CRM ID, ECID and email are separate namespace-backed signals. **Consent:** evaluate current purpose and channel permissions before activation. **Activation:** downstream hand-off is simulated here and requires tenant configuration in production.")
