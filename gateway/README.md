@@ -44,3 +44,23 @@ This remains a synthetic proof-of-concept, not a production integration. Retry j
 ```bash
 pytest -q
 ```
+
+## Deploy to Render (learning environment)
+
+This repository includes a Render Blueprint at the root: `render.yaml`. It provisions a Python web service and a PostgreSQL 16 database in Singapore. The service runs Uvicorn from `gateway/app.py`, exposes `/health` for Render health checks, generates `GATEWAY_API_KEY` in Render, and receives its database connection string through a Blueprint database reference.
+
+### Deploy steps
+
+1. Push the repository's `main` branch to GitHub.
+2. Sign in to Render and choose **New → Blueprint**.
+3. Connect the GitHub repository `sghatge/customer-360-intelligence`.
+4. Review the resources and select **Apply** to provision them.
+5. After the service deploys, open its **Environment** page and copy the generated `GATEWAY_API_KEY` into a secure password manager.
+6. Copy the service's public `onrender.com` URL. Verify `https://YOUR-SERVICE.onrender.com/health` returns `status: ok` and `storage: postgresql`.
+7. In the Streamlit app's Secrets settings, set `GATEWAY_BASE_URL` to that service URL and `GATEWAY_API_KEY` to the generated key. Restart/redeploy the Streamlit app.
+
+### Free-tier warning
+
+The Blueprint currently uses Render Free compute and a Free PostgreSQL database to avoid provisioning paid resources without explicit approval. Render documents that Free web services can spin down when idle and Free Postgres databases expire 30 days after creation. Do not use this configuration for production or real customer data. Before relying on persistent data, upgrade the database to an appropriate paid plan and review backups, access controls, network allow-lists and operational monitoring.
+
+The Blueprint does not connect Adobe or Salesforce tenants. The gateway remains a synthetic integration demonstration; CRM proposals stay pending human approval.
