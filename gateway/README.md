@@ -1,17 +1,28 @@
 # Phase 6 — Local Integration Gateway
 
-## Run locally
+## Run locally with SQLite
 ```bash
 pip install -r requirements.txt
 export GATEWAY_API_KEY="replace-with-a-long-random-local-secret"
 uvicorn gateway.app:app --reload --port 8000
 ```
 
-By default, SQLite persists data at `gateway/data/gateway.db`. Override the location with `GATEWAY_DB_PATH` when needed. The database directory is created automatically.
+SQLite is the default and persists data at `gateway/data/gateway.db`. Override the file location with `GATEWAY_DB_PATH`. The database directory is created automatically.
 
-Health: `GET http://127.0.0.1:8000/health`
+## Configure PostgreSQL
+Set `GATEWAY_DATABASE_URL` to a PostgreSQL connection string. The gateway accepts standard `postgresql://` and `postgres://` URLs and uses the Psycopg 3 driver.
 
-Interactive API docs: `http://127.0.0.1:8000/docs`
+```bash
+export GATEWAY_DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require"
+export GATEWAY_API_KEY="replace-with-a-long-random-local-secret"
+uvicorn gateway.app:app --host 0.0.0.0 --port 8000
+```
+
+Keep database credentials in the hosting platform's secret manager; never commit them to Git. Use a least-privilege database role and TLS. The application initializes the required tables and indexes on startup. For production, use managed schema migrations rather than relying on application startup DDL.
+
+Health: `GET /health` — returns the active storage type after checking database connectivity.
+
+Interactive API docs: `/docs`
 
 ## Authenticated endpoints
 - `POST /v1/events` — validate the shared customer lifecycle event contract, deduplicate by eventId and persist a synthetic event.
@@ -22,9 +33,9 @@ Interactive API docs: `http://127.0.0.1:8000/docs`
 Send `Authorization: Bearer <GATEWAY_API_KEY>` to all endpoints except health.
 
 ## Storage and safety
-SQLite now provides local durability for events, CRM action proposals, and audit records across process restarts. Event IDs and action request IDs are unique keys, and correlation IDs are indexed for retrieval.
+SQLite supports local learning and single-instance demonstrations. PostgreSQL is configurable for hosted environments and multi-client persistence. Events, CRM action proposals and audit records are stored in the selected database. CRM proposals are never executed.
 
-This remains a local proof-of-concept, not a production integration. It has no managed database, distributed queue, retry worker, dead-letter queue, rate limiting, tenant authentication, Adobe connector or Salesforce connector. CRM proposals are stored but never executed. Do not expose this service publicly or submit real customer data. A production design needs managed PostgreSQL, managed secrets, TLS, OAuth/service identities, least privilege, observability, schema versioning, privacy review, backup/restore procedures and threat modelling.
+This remains a synthetic proof-of-concept, not a production integration. It has no managed queue, retry worker, dead-letter queue, rate limiting, tenant authentication, Adobe connector or Salesforce connector. Do not submit real customer data. Production readiness still requires managed secrets, TLS, OAuth/service identities, least privilege, migrations, observability, backup/restore, privacy review, threat modelling and operational runbooks.
 
 ## Tests
 ```bash
