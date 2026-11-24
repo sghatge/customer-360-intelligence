@@ -28,6 +28,15 @@ Build a trustworthy unified customer profile from CRM, web and commerce signals,
 - `ROADMAP.md` — 8-week plan at 6–8 hours/week
 - `docs/sprint-4-customer360-capstone.md` — end-to-end AEP → RTCDP → AJO → Salesforce walkthrough
 
+## Zero-cost deployment model
+
+- **Interactive AEP lab:** Streamlit Community Cloud, using the repository root `app.py` and `requirements.txt`. Connect the GitHub repository, select branch `main`, and set the main file path to `app.py`.
+- **Source control and automated tests:** GitHub and GitHub Actions.
+- **Lifecycle integration gateway:** run locally with FastAPI and SQLite using the steps in `gateway/README.md`.
+- **Hosting exclusions:** this repository does not require Vercel, Render, a hosted database or any paid deployment service. The gateway is not publicly hosted in this learning setup.
+
+The existing Streamlit app URL is [AEP Customer 360 Lab](https://aep-customer-360-lab.streamlit.app/). Streamlit Community Cloud deployment must be connected to this repository and configured to deploy from `main`; merging code does not by itself prove that the hosted app has completed a successful rebuild.
+
 ## Quick start
 ```bash
 python -m venv .venv
