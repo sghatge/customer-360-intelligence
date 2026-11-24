@@ -27,6 +27,10 @@ app = FastAPI(title="MarTech Lifecycle Integration Gateway", version="0.3.0",
 def database_url() -> str:
     configured = os.getenv("GATEWAY_DATABASE_URL")
     if configured:
+        if configured.startswith("postgres://"):
+            return configured.replace("postgres://", "postgresql+psycopg://", 1)
+        if configured.startswith("postgresql://"):
+            return configured.replace("postgresql://", "postgresql+psycopg://", 1)
         return configured
     path = Path(os.getenv("GATEWAY_DB_PATH", str(ROOT / "gateway" / "data" / "gateway.db")))
     path.parent.mkdir(parents=True, exist_ok=True)
