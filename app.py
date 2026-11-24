@@ -12,6 +12,19 @@ st.title("🧩 Adobe Experience Platform | Customer 360 Lab")
 st.caption("Hands-on simulator: XDM, unified profiles, identity stitching, consent-aware audiences and activation readiness")
 st.info("Synthetic learning data only. This lab does not connect to an Adobe tenant, ingest production data or activate real audiences.")
 
+with st.sidebar:
+    st.header("Learning path")
+    st.markdown(
+        "1. **Profile foundation** — inspect customer attributes\\n"
+        "2. **Identity resolution** — review CRM ID, ECID and email\\n"
+        "3. **Data modelling** — explore XDM and validate events\\n"
+        "4. **Audience governance** — apply segment and consent rules\\n"
+        "5. **Activation** — inspect the AJO / Salesforce hand-off"
+    )
+    st.divider()
+    st.caption("Recommended: complete the tabs from left to right, then repeat with a different synthetic customer.")
+    st.info("Sandbox boundary: all records and actions are simulated. No Adobe or Salesforce tenant is connected.")
+
 PROFILES = [
     {"crm_id":"C-1001","name":"Aarav Mehta","email":"aarav@example.test","ecid":"ECID-9001","tier":"GOLD","ltv":48200,"email_ok":True,"sms_ok":True,"last_seen":2},
     {"crm_id":"C-1002","name":"Diya Shah","email":"diya@example.test","ecid":"ECID-9002","tier":"SILVER","ltv":12400,"email_ok":False,"sms_ok":True,"last_seen":8},
@@ -44,7 +57,6 @@ if "ingest_log" not in st.session_state:
     st.session_state.ingest_log = []
 
 profiles_df = pd.DataFrame(PROFILES)
-events_df = pd.DataFrame(st.session_state.events)
 c1,c2,c3,c4 = st.columns(4)
 c1.metric("Unified profiles",len(PROFILES))
 c2.metric("Experience events",len(st.session_state.events))
