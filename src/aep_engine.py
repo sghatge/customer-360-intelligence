@@ -31,7 +31,7 @@ def assess_identity_conflicts(profiles: list[dict[str, Any]]) -> list[dict[str, 
         by_value: dict[str, set[str]] = {}
         for profile in profiles:
             value = (profile.get(field) or "").strip()
-            crm_id = (profile.get("crmId") or "").strip()
+            crm_id = (profile.get("crmId") or profile.get("crm_id") or "").strip()
             if value and crm_id:
                 normalized = value.casefold() if namespace == "EMAIL" else value
                 by_value.setdefault(normalized, set()).add(crm_id)
