@@ -43,6 +43,9 @@ XDM concepts → profile and identity design → event ingestion contracts → c
 ## Query Service and AJO simulation
 The Streamlit lab includes a local read-only SQL workbench over synthetic data and a conceptual AEP-to-AJO journey preview. These are learning simulations, not Adobe service connections. See `docs/phase-4-query-service-ajo-simulation.md`.
 
+## Enterprise lifecycle integration
+The AEP, AJO and Salesforce labs share versioned `contracts/customer-lifecycle-event.json` and `contracts/salesforce-followup-action.json` contracts. The AEP app includes a Lifecycle Integration Hub to preview correlated events and human-approved CRM action proposals. See `docs/enterprise-lifecycle-integration.md`. This is a local synthetic simulation, not a live connector.
+
 ## Data safety
 Never commit client data, production exports, credentials, access tokens or identifiable customer records. Use synthetic examples only. Keep secrets in environment variables and `.env` must remain ignored.
 
