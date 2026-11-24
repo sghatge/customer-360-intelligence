@@ -5,7 +5,7 @@ import streamlit as st
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'src'))
-from aep_engine import validate_against_contract, detect_identity_collisions, apply_entry_exit_rule, run_read_only_sql
+from aep_engine import validate_against_contract, detect_identity_collisions, assess_identity_conflicts, apply_entry_exit_rule, run_read_only_sql
 
 st.set_page_config(page_title="AEP Customer 360 Lab", page_icon="🧩", layout="wide")
 st.title("🧩 Adobe Experience Platform | Customer 360 Lab")
@@ -107,6 +107,25 @@ with tabs[1]:
         {"Namespace":"Email","Identity value":person["email"],"Illustrative role":"Contact identifier"},
     ]),use_container_width=True,hide_index=True)
 
+    st.markdown("#### Identity conflict review simulator")
+    scenario = st.selectbox(
+        "Choose a synthetic identity scenario",
+        ["Clean identifiers", "Shared email across CRM IDs", "Shared ECID across CRM IDs"],
+        key="identity_conflict_scenario",
+    )
+    review_profiles = [dict(p) for p in PROFILES]
+    if scenario == "Shared email across CRM IDs":
+        review_profiles.append({**person, "crm_id":"C-REVIEW-EMAIL", "email":person["email"].upper(), "ecid":"ECID-REVIEW-EMAIL"})
+    elif scenario == "Shared ECID across CRM IDs":
+        review_profiles.append({**person, "crm_id":"C-REVIEW-ECID", "email":"review@example.test", "ecid":person["ecid"]})
+    conflicts = assess_identity_conflicts(review_profiles)
+    if conflicts:
+        st.warning("Potential identity conflict detected. The simulator flags it for human/data-steward review and does not merge profiles.")
+        st.dataframe(pd.DataFrame(conflicts), use_container_width=True, hide_index=True)
+    else:
+        st.success("No shared ECID or email across different CRM IDs was detected in this scenario.")
+    st.caption("Lab rule only: shared identifiers are review signals, not proof that two customer records represent the same person. Production outcomes depend on namespace identity types, graph configuration, merge policies and data stewardship.")
+
 with tabs[2]:
     st.subheader("Build a consent-aware audience")
     a,b,c = st.columns(3)
@@ -145,6 +164,32 @@ with tabs[3]:
     st.dataframe(schema_df,use_container_width=True,hide_index=True)
     st.markdown("**Design checkpoints**")
     st.markdown("- Select the appropriate XDM class and standard/custom field groups.\n- Define identity descriptors and namespaces deliberately.\n- Keep profile attributes distinct from event-level behaviour.\n- Document field ownership, consent semantics and retention.\n- Validate schema compatibility before enabling datasets for Profile.")
+
+    st.divider()
+    st.markdown("#### ExperienceEvent contract validator")
+    sample_event = {
+        "eventId":"LAB-EVENT-001",
+        "eventType":"addToCart",
+        "timestamp":"2026-11-24T08:00:00Z",
+        "identity":{"ecid":"ECID-9001"},
+        "commerce":{"currency":"INR","value":2499}
+    }
+    event_json = st.text_area("Paste or edit a sample event JSON", json.dumps(sample_event, indent=2), height=220)
+    if st.button("Validate event against lab contract", key="validate_xdm_event"):
+        try:
+            parsed_event = json.loads(event_json)
+            validation_errors = validate_against_contract(parsed_event, "contracts/experience-event.json")
+            if validation_errors:
+                st.error("Contract validation failed")
+                for error in validation_errors:
+                    st.write(f"- {error}")
+            else:
+                st.success("Event passes the repository's ExperienceEvent learning contract.")
+        except json.JSONDecodeError as exc:
+            st.error(f"Invalid JSON: {exc}")
+        except (OSError, RuntimeError, ValueError) as exc:
+            st.error(f"Validation could not run: {exc}")
+    st.caption("This validates the repository's illustrative JSON Schema contract. It does not validate against an Adobe tenant or guarantee tenant schema compatibility.")
 
 with tabs[4]:
     st.subheader("Simulate an ExperienceEvent")
