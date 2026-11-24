@@ -29,13 +29,16 @@ Interactive API docs: `/docs`
 - `GET /v1/events/{correlation_id}` — retrieve accepted events for a journey correlation ID.
 - `POST /v1/crm-actions` — validate and persist a Salesforce action proposal, always in PENDING_HUMAN_APPROVAL.
 - `GET /v1/audit?limit=100` — inspect the persisted audit trail.
+- `POST /v1/retries` — enqueue a synthetic downstream task.
+- `GET /v1/retries?status=PENDING|RETRY_SCHEDULED|DEAD_LETTER` — inspect retry and dead-letter jobs.
+- `POST /v1/retries/{job_id}/fail` — record a failed attempt and schedule bounded exponential backoff; after the configured maximum, move the job to `DEAD_LETTER`.
 
 Send `Authorization: Bearer <GATEWAY_API_KEY>` to all endpoints except health.
 
 ## Storage and safety
 SQLite supports local learning and single-instance demonstrations. PostgreSQL is configurable for hosted environments and multi-client persistence. Events, CRM action proposals and audit records are stored in the selected database. CRM proposals are never executed.
 
-This remains a synthetic proof-of-concept, not a production integration. It has no managed queue, retry worker, dead-letter queue, rate limiting, tenant authentication, Adobe connector or Salesforce connector. Do not submit real customer data. Production readiness still requires managed secrets, TLS, OAuth/service identities, least privilege, migrations, observability, backup/restore, privacy review, threat modelling and operational runbooks.
+This remains a synthetic proof-of-concept, not a production integration. Retry jobs and dead-letter transitions are persisted, with a bounded attempt count (1–10) and exponential delay (60 seconds, doubling to a one-hour cap). This phase provides queue-state primitives and a failure-recording endpoint for controlled demonstrations; it does not run a background worker or execute downstream delivery. It has no rate limiting, tenant authentication, Adobe connector or Salesforce connector. Do not submit real customer data. Production readiness still requires managed secrets, TLS, OAuth/service identities, least privilege, migrations, observability, backup/restore, privacy review, threat modelling and operational runbooks.
 
 ## Tests
 ```bash
