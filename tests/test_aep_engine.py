@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from aep_engine import (validate_against_contract, detect_identity_collisions,
-                        assess_identity_conflicts, evaluate_audience, apply_entry_exit_rule)
+                        assess_identity_conflicts, evaluate_audience, evaluate_lab_audience, apply_entry_exit_rule)
 
 def test_event_contract_accepts_valid_event():
     event = {"eventId":"E1","eventType":"addToCart","timestamp":"2026-11-24T08:00:00+05:30",
@@ -63,6 +63,34 @@ def test_unique_identifiers_do_not_create_identity_conflicts():
         {"crm_id":"C2","email":"two@example.test","ecid":"X2"},
     ]
     assert assess_identity_conflicts(profiles) == []
+
+
+def test_lab_audience_requires_segment_event_and_channel_consent():
+    profiles = [
+        {"crm_id":"C1","name":"A","tier":"GOLD","ltv":50000,"last_seen":2,"email_ok":True,"sms_ok":False},
+        {"crm_id":"C2","name":"B","tier":"GOLD","ltv":50000,"last_seen":2,"email_ok":False,"sms_ok":True},
+        {"crm_id":"C3","name":"C","tier":"SILVER","ltv":50000,"last_seen":2,"email_ok":True,"sms_ok":True},
+    ]
+    events = [{"crm_id":"C1","event_type":"add_to_cart"}]
+    result = evaluate_lab_audience(profiles, events, {"GOLD"}, 10000, 30, "Email", "add_to_cart")
+    assert result[0]["eligible"] is True
+    assert result[0]["reason"] == "ELIGIBLE"
+    assert result[1]["reason"] == "REQUIRED_EVENT_NOT_FOUND"
+    assert result[2]["reason"] == "NOT_IN_SEGMENT"
+
+def test_lab_audience_blocks_denied_channel_consent():
+    profiles = [{"crm_id":"C1","tier":"GOLD","ltv":50000,"last_seen":1,"email_ok":False,"sms_ok":True}]
+    result = evaluate_lab_audience(profiles, [], {"GOLD"}, 10000, 30, "Email")
+    assert result[0]["eligible"] is False
+    assert result[0]["reason"] == "CONSENT_NOT_GRANTED"
+
+def test_lab_audience_rejects_unsupported_channel():
+    try:
+        evaluate_lab_audience([], [], set(), 0, 30, "Push")
+    except ValueError as exc:
+        assert "Email" in str(exc)
+    else:
+        raise AssertionError("Unsupported channel should be rejected")
 
 def test_consent_denial_blocks_audience_eligibility():
     profile = {"crmId":"C1","loyaltyTier":"GOLD","lifetimeValue":50000,
