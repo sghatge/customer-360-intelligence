@@ -85,7 +85,7 @@ def evaluate_lab_audience(
         segment_match = (
             profile.get("tier") in allowed_tiers
             and float(profile.get("ltv", 0) or 0) >= min_ltv
-            and int(profile.get("last_seen", 10**9) or 0) <= max_recency_days
+            and int(profile.get("last_seen", 10**9)) <= max_recency_days
         )
         event_match = (
             required_event_type in (None, "Any event")
