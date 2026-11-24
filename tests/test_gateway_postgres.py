@@ -12,7 +12,11 @@ os.environ["GATEWAY_API_KEY"] = "postgres-ci-test-key"
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
-from gateway import app as gateway
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gateway"))
+import app as gateway
 
 client = TestClient(gateway.app)
 HEADERS = {"Authorization": "Bearer postgres-ci-test-key"}
