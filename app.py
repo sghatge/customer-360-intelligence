@@ -5,7 +5,7 @@ import streamlit as st
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'src'))
-from aep_engine import validate_against_contract, detect_identity_collisions, assess_identity_conflicts, apply_entry_exit_rule, run_read_only_sql
+from aep_engine import validate_against_contract, detect_identity_collisions, assess_identity_conflicts, evaluate_lab_audience, apply_entry_exit_rule, run_read_only_sql
 
 st.set_page_config(page_title="AEP Customer 360 Lab", page_icon="🧩", layout="wide")
 st.title("🧩 Adobe Experience Platform | Customer 360 Lab")
@@ -127,32 +127,62 @@ with tabs[1]:
     st.caption("Lab rule only: shared identifiers are review signals, not proof that two customer records represent the same person. Production outcomes depend on namespace identity types, graph configuration, merge policies and data stewardship.")
 
 with tabs[2]:
-    st.subheader("Build a consent-aware audience")
+    st.subheader("Real-Time CDP audience builder")
+    st.caption("Build an explainable audience from synthetic profile attributes, experience events and channel consent.")
     a,b,c = st.columns(3)
     with a:
-        tiers = st.multiselect("Loyalty tier",["BRONZE","SILVER","GOLD","PLATINUM"],default=["GOLD","PLATINUM"])
+        tiers = st.multiselect("Loyalty tier",["BRONZE","SILVER","GOLD","PLATINUM"],default=["GOLD","PLATINUM"],key="rtcdp_tiers")
     with b:
-        min_ltv = st.number_input("Minimum lifetime value (₹)",min_value=0,max_value=200000,value=20000,step=5000)
+        min_ltv = st.number_input("Minimum lifetime value (₹)",min_value=0,max_value=200000,value=20000,step=5000,key="rtcdp_ltv")
     with c:
-        recency = st.slider("Seen within last N days",1,120,30)
-    channel = st.radio("Activation channel",["Email","SMS"],horizontal=True)
-    consent_field = "email_ok" if channel=="Email" else "sms_ok"
-    candidate = profiles_df[profiles_df.tier.isin(tiers) & (profiles_df.ltv>=min_ltv) & (profiles_df.last_seen<=recency)]
-    eligible = candidate[candidate[consent_field] == True]
-    excluded = candidate[candidate[consent_field] == False]
-    x,y,z = st.columns(3)
-    x.metric("Segment matches",len(candidate))
-    y.metric("Consent eligible",len(eligible))
-    z.metric("Excluded by consent",len(excluded))
-    st.markdown("**Eligible profiles**")
-    st.dataframe(eligible[["crm_id","name","tier","ltv","last_seen",consent_field]],use_container_width=True,hide_index=True)
-    if not excluded.empty:
-        with st.expander("View profiles excluded by channel consent"):
-            st.dataframe(excluded[["crm_id","name","tier",consent_field]],use_container_width=True,hide_index=True)
-    st.caption("Lab rule: consent is evaluated after segment matching. A production policy must also check suppression, jurisdiction, channel eligibility, purpose and current consent source.")
-    audience_name = st.text_input("Audience name",value="High-value active customers")
-    st.session_state["audience_export"] = {"name":audience_name,"channel":channel,"eligible_ids":eligible.crm_id.tolist()}
-    st.download_button("Download eligible audience CSV",eligible.to_csv(index=False).encode("utf-8"),file_name="aep_lab_eligible_audience.csv",mime="text/csv",disabled=eligible.empty)
+        recency = st.slider("Seen within last N days",1,120,30,key="rtcdp_recency")
+    d,e = st.columns(2)
+    with d:
+        channel = st.radio("Activation channel",["Email","SMS"],horizontal=True,key="rtcdp_channel")
+    with e:
+        required_event = st.selectbox("Required experience event",["Any event"] + EVENT_TYPES,key="rtcdp_event")
+    audience_name = st.text_input("Audience name",value="High-value active customers",key="rtcdp_name")
+    audience_results = evaluate_lab_audience(
+        PROFILES, st.session_state.events, set(tiers), min_ltv, recency, channel, required_event
+    )
+    results_df = pd.DataFrame(audience_results)
+    eligible_df = results_df[results_df.eligible]
+    segment_count = int(results_df.segment_match.sum())
+    event_count = int((results_df.segment_match & results_df.event_match).sum())
+    consent_blocked = int((results_df.segment_match & results_df.event_match & ~results_df.eligible).sum())
+    x,y,z,w = st.columns(4)
+    x.metric("Profiles in segment",segment_count)
+    y.metric("Event qualified",event_count)
+    z.metric("Activation eligible",len(eligible_df))
+    w.metric("Blocked by consent",consent_blocked)
+    st.markdown("**Qualification results — one row per synthetic profile**")
+    st.dataframe(results_df,use_container_width=True,hide_index=True)
+    st.caption("Decision order: profile segment → required event → channel consent. Consent denial or unknown/false consent blocks activation.")
+    st.divider()
+    st.markdown("#### Audience membership transitions")
+    st.session_state.setdefault("previous_audience_members",set())
+    current_members = set(eligible_df.crm_id.tolist())
+    transition_rows = []
+    for profile in PROFILES:
+        was_member = profile["crm_id"] in st.session_state.previous_audience_members
+        is_member = profile["crm_id"] in current_members
+        transition_rows.append({"crm_id":profile["crm_id"],"name":profile["name"],
+                                "previous_member":was_member,"current_member":is_member,
+                                "transition":apply_entry_exit_rule(was_member,is_member)})
+    transition_df = pd.DataFrame(transition_rows)
+    st.dataframe(transition_df,use_container_width=True,hide_index=True)
+    if st.button("Save current membership as previous snapshot",key="save_audience_snapshot"):
+        st.session_state.previous_audience_members = current_members
+        st.success("Membership snapshot saved for this browser session.")
+    st.caption("Snapshot is session-local and illustrative. It is not an Adobe segment evaluation schedule or persistent audience store.")
+    st.divider()
+    st.markdown("#### Activation preview")
+    st.write(f"**{audience_name}** · {channel} · {len(eligible_df)} eligible profiles")
+    export_columns = ["crm_id","name","tier","ltv","last_seen","consent","reason"]
+    export_df = eligible_df[export_columns] if not eligible_df.empty else pd.DataFrame(columns=export_columns)
+    st.download_button("Download eligible audience CSV",export_df.to_csv(index=False).encode("utf-8"),
+                       file_name="aep_lab_eligible_audience.csv",mime="text/csv",disabled=eligible_df.empty)
+    st.caption("CSV is a synthetic activation preview only. A production destination must enforce consent, suppression, jurisdiction, purpose, identity and destination-specific controls.")
 
 with tabs[3]:
     st.subheader("XDM schema field explorer")
