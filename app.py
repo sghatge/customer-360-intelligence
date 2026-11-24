@@ -5,7 +5,7 @@ import streamlit as st
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'src'))
-from aep_engine import validate_against_contract, detect_identity_collisions, apply_entry_exit_rule
+from aep_engine import validate_against_contract, detect_identity_collisions, apply_entry_exit_rule, run_read_only_sql
 
 st.set_page_config(page_title="AEP Customer 360 Lab", page_icon="🧩", layout="wide")
 st.title("🧩 Adobe Experience Platform | Customer 360 Lab")
@@ -51,7 +51,7 @@ c2.metric("Experience events",len(st.session_state.events))
 c3.metric("Identity namespaces",3)
 c4.metric("Lab ingestions",len(st.session_state.ingest_log))
 
-tabs = st.tabs(["Profile explorer","Identity graph","Audience builder","XDM schema explorer","Event ingestion lab","Activation preview","Enterprise rule engine"])
+tabs = st.tabs(["Profile explorer","Identity graph","Audience builder","XDM schema explorer","Event ingestion lab","Activation preview","Enterprise rule engine","Query Service SQL lab","AJO journey preview"])
 with tabs[0]:
     selected = st.selectbox("Choose a customer",PROFILES,format_func=lambda p:f"{p['name']} · {p['crm_id']}")
     left,right = st.columns(2)
@@ -209,6 +209,49 @@ with tabs[6]:
     transition = apply_entry_exit_rule(was_member, currently_eligible)
     st.metric("Membership action", transition)
     st.caption("Illustrative deterministic transition: ENTER, EXIT, REMAIN or NOT_IN_AUDIENCE. This is not Adobe's native segment evaluation engine.")
+
+with tabs[7]:
+    st.subheader("Query Service practice workbench")
+    st.caption("A local, read-only SQL simulation over synthetic profiles and events. It is not Adobe Experience Platform Query Service.")
+    samples = {
+        "High-value opted-in profiles": "SELECT crm_id, name, tier, ltv FROM profiles WHERE ltv >= 30000 AND email_ok = 1 ORDER BY ltv DESC",
+        "Cart events with customer details": "SELECT e.event_id, e.product, p.name, p.email FROM events e JOIN profiles p ON p.crm_id = e.crm_id WHERE e.event_type = 'add_to_cart'",
+        "Event volume by type": "SELECT event_type, COUNT(*) AS event_count FROM events GROUP BY event_type ORDER BY event_count DESC",
+        "Profiles without recent activity": "SELECT crm_id, name, last_seen FROM profiles WHERE last_seen >= 30 ORDER BY last_seen DESC"
+    }
+    sample_name = st.selectbox("Load a practice query", list(samples.keys()))
+    sql_text = st.text_area("SQL statement", value=samples[sample_name], height=160, key="sql_workbench")
+    if st.button("Run read-only query", type="primary", key="run_sql"):
+        try:
+            result = run_read_only_sql(sql_text, PROFILES, st.session_state.events)
+            st.success(f"Query completed · {result['row_count']} rows returned" + (" · display capped at 100 rows" if result["truncated"] else ""))
+            st.dataframe(pd.DataFrame(result["rows"], columns=result["columns"]), use_container_width=True, hide_index=True)
+        except ValueError as exc:
+            st.error(str(exc))
+    st.markdown("**Query design controls**")
+    st.markdown("- Use explicit time windows and selective predicates in production.\n- Select only required columns; avoid unnecessary wide scans.\n- Validate joins against identity and cardinality assumptions.\n- This simulator uses SQLite in memory; SQL syntax and performance are not identical to Adobe Query Service.")
+
+with tabs[8]:
+    st.subheader("AEP audience → AJO journey hand-off")
+    audience = st.session_state.get("audience_export", {"name":"Build an audience first","channel":"Email","eligible_ids":[]})
+    st.write("Source audience:", audience["name"])
+    st.write("Channel:", audience["channel"])
+    st.metric("Consent-eligible synthetic profiles", len(audience["eligible_ids"]))
+    journey_type = st.selectbox("Journey pattern", ["Abandoned cart recovery","Post-purchase cross-sell","VIP engagement"])
+    if journey_type == "Abandoned cart recovery":
+        steps = ["Audience qualification: add_to_cart","Wait: illustrative 60 minutes","Re-check purchase event","Re-check channel consent and suppression","Prepare recovery message action"]
+        trigger = "add_to_cart"
+    elif journey_type == "Post-purchase cross-sell":
+        steps = ["Audience qualification: purchase","Wait: illustrative 24 hours","Check product eligibility and recent purchases","Re-check channel consent and suppression","Prepare cross-sell message action"]
+        trigger = "purchase"
+    else:
+        steps = ["Audience qualification: GOLD or PLATINUM","Check recent engagement","Re-check channel consent and suppression","Prepare VIP engagement action"]
+        trigger = "profile_qualification"
+    for index, step in enumerate(steps, 1):
+        st.write(f"{index}. {step}")
+    handoff = {"source":"AEP Customer 360 Lab","destination":"Adobe Journey Optimizer","journey_pattern":journey_type,"entry_trigger":trigger,"channel":audience["channel"],"eligible_synthetic_profile_ids":audience["eligible_ids"],"steps":steps,"activation_status":"SIMULATED_NOT_SENT"}
+    st.code(json.dumps(handoff, indent=2), language="json")
+    st.warning("This is a conceptual journey hand-off only. No AJO journey, profile, message or campaign is created or activated.")
 
 with st.expander("Architecture and learning checkpoints"):
     st.markdown("**XDM:** model schemas and field groups before ingestion. **Datasets:** store records conforming to schemas; Profile-enabled datasets contribute to Real-Time Customer Profile when correctly configured. **Identity:** CRM ID, ECID and email are separate namespace-backed signals. **Consent:** evaluate current purpose and channel permissions before activation. **Activation:** downstream hand-off is simulated here and requires tenant configuration in production.")
