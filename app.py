@@ -1,4 +1,6 @@
 import json
+import os
+import httpx
 from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
@@ -63,7 +65,7 @@ c2.metric("Experience events",len(st.session_state.events))
 c3.metric("Identity namespaces",3)
 c4.metric("Lab ingestions",len(st.session_state.ingest_log))
 
-tabs = st.tabs(["Profile explorer","Identity graph","Audience builder","XDM schema explorer","Event ingestion lab","Activation preview","Enterprise rule engine","Query Service SQL lab","AJO journey preview","Lifecycle integration hub"])
+tabs = st.tabs(["Profile explorer","Identity graph","Audience builder","XDM schema explorer","Event ingestion lab","Activation preview","Enterprise rule engine","Query Service SQL lab","AJO journey preview","Lifecycle integration hub","Gateway operations"])
 with tabs[0]:
     selected = st.selectbox("Choose a customer",PROFILES,format_func=lambda p:f"{p['name']} · {p['crm_id']}")
     left,right = st.columns(2)
@@ -374,6 +376,68 @@ with tabs[9]:
     st.json(action_payload)
     st.warning("No AJO message is sent and no Salesforce record is created. The CRM action remains PENDING_HUMAN_APPROVAL.")
     st.download_button("Download lifecycle event JSON",json.dumps(event_payload,indent=2).encode("utf-8"),file_name="customer_lifecycle_event.json",mime="application/json")
+
+
+with tabs[10]:
+    st.subheader("Integration Gateway · Queue Operations")
+    st.caption("Operational view of persisted retry jobs and dead-letter records. Read-only monitoring plus explicitly simulated failure recording.")
+    gateway_url = os.getenv("GATEWAY_BASE_URL", "").rstrip("/")
+    gateway_key = os.getenv("GATEWAY_API_KEY", "")
+    try:
+        gateway_url = gateway_url or str(st.secrets.get("GATEWAY_BASE_URL", "")).rstrip("/")
+        gateway_key = gateway_key or str(st.secrets.get("GATEWAY_API_KEY", ""))
+    except Exception:
+        pass
+
+    if not gateway_url or not gateway_key:
+        st.info("Gateway connection is not configured in this Streamlit environment.")
+        st.markdown("Configure **GATEWAY_BASE_URL** and **GATEWAY_API_KEY** in Streamlit Secrets or environment variables to connect the dashboard to the gateway.")
+        st.code('GATEWAY_BASE_URL = "https://your-gateway-host"\nGATEWAY_API_KEY = "your-secret"', language="toml")
+        st.warning("No gateway data is being fetched. This screen will not create a local database or pretend that live records exist.")
+    else:
+        headers = {"Authorization": f"Bearer {gateway_key}"}
+        try:
+            health_response = httpx.get(f"{gateway_url}/health", timeout=8.0)
+            health_response.raise_for_status()
+            health_data = health_response.json()
+            retry_response = httpx.get(f"{gateway_url}/v1/retries", params={"limit": 500}, headers=headers, timeout=12.0)
+            retry_response.raise_for_status()
+            jobs = retry_response.json().get("jobs", [])
+            queue_df = pd.DataFrame(jobs)
+            pending_count = int((queue_df["status"] == "PENDING").sum()) if not queue_df.empty else 0
+            scheduled_count = int((queue_df["status"] == "RETRY_SCHEDULED").sum()) if not queue_df.empty else 0
+            dead_count = int((queue_df["status"] == "DEAD_LETTER").sum()) if not queue_df.empty else 0
+            m1,m2,m3,m4 = st.columns(4)
+            m1.metric("Gateway", health_data.get("status", "unknown").upper())
+            m2.metric("Pending", pending_count)
+            m3.metric("Retry scheduled", scheduled_count)
+            m4.metric("Dead-letter", dead_count)
+            st.caption(f"Storage: {health_data.get('storage', 'unknown')} · Mode: {health_data.get('mode', 'unknown')} · Jobs returned: {len(jobs)}")
+            if queue_df.empty:
+                st.success("Queue is empty. No retry or dead-letter jobs were returned.")
+            else:
+                display_columns = [col for col in ["job_id","correlation_id","task_type","status","attempts","max_attempts","next_attempt_at","last_error","created_at"] if col in queue_df.columns]
+                st.dataframe(queue_df[display_columns], use_container_width=True, hide_index=True)
+                st.markdown("#### Job inspection")
+                selected_job = st.selectbox("Select a job", jobs, format_func=lambda job: f"{job.get('task_type')} · {job.get('status')} · {job.get('job_id','')[:8]}")
+                st.json(selected_job)
+                if selected_job.get("status") != "DEAD_LETTER":
+                    st.markdown("#### Record a simulated downstream failure")
+                    failure_note = st.text_input("Failure reason", value="Simulated downstream timeout", key="gateway_failure_reason")
+                    if st.button("Record failed attempt", key="gateway_record_failure"):
+                        try:
+                            result = httpx.post(f"{gateway_url}/v1/retries/{selected_job['job_id']}/fail",
+                                                json={"error": failure_note}, headers=headers, timeout=12.0)
+                            result.raise_for_status()
+                            st.success(f"Job updated: {result.json().get('status')}")
+                            st.rerun()
+                        except httpx.HTTPError as exc:
+                            st.error(f"Gateway request failed: {exc}")
+                else:
+                    st.warning("This job is in the dead-letter queue. Replay is not enabled in this phase.")
+        except httpx.HTTPError as exc:
+            st.error(f"Gateway connection failed: {exc}")
+            st.caption("Check the gateway URL, API key, network access and gateway health endpoint.")
 
 with st.expander("Architecture and learning checkpoints"):
     st.markdown("**XDM:** model schemas and field groups before ingestion. **Datasets:** store records conforming to schemas; Profile-enabled datasets contribute to Real-Time Customer Profile when correctly configured. **Identity:** CRM ID, ECID and email are separate namespace-backed signals. **Consent:** evaluate current purpose and channel permissions before activation. **Activation:** downstream hand-off is simulated here and requires tenant configuration in production.")
