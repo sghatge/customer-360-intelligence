@@ -26,6 +26,7 @@ Build a trustworthy unified customer profile from CRM, web and commerce signals,
 - `sql/` — read-only learning queries
 - `docs/phase-4-query-service-ajo-simulation.md` — Query Service and journey hand-off guide
 - `ROADMAP.md` — 8-week plan at 6–8 hours/week
+- `docs/sprint-4-customer360-capstone.md` — end-to-end AEP → RTCDP → AJO → Salesforce walkthrough
 
 ## Quick start
 ```bash
