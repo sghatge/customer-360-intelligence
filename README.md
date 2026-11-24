@@ -46,6 +46,9 @@ The Streamlit lab includes a local read-only SQL workbench over synthetic data a
 ## Enterprise lifecycle integration
 The AEP, AJO and Salesforce labs share versioned `contracts/customer-lifecycle-event.json` and `contracts/salesforce-followup-action.json` contracts. The AEP app includes a Lifecycle Integration Hub to preview correlated events and human-approved CRM action proposals. See `docs/enterprise-lifecycle-integration.md`. This is a local synthetic simulation, not a live connector.
 
+## Phase 6 — Integration gateway
+A local FastAPI proof-of-concept validates the shared lifecycle and Salesforce action contracts, deduplicates event IDs within process memory, exposes correlation lookup and records a basic audit trail. CRM proposals are held for human approval; no external writes are executed. See `gateway/README.md`. Do not expose this in-memory demo publicly or use real customer data.
+
 ## Data safety
 Never commit client data, production exports, credentials, access tokens or identifiable customer records. Use synthetic examples only. Keep secrets in environment variables and `.env` must remain ignored.
 
