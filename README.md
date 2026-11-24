@@ -1,3 +1,15 @@
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/sghatge/sghatge/main/assets/portfolio/project-banner.svg" width="100%" alt="Sangram Ghatge engineering portfolio banner">
+
+**INDEPENDENT ENGINEERING PORTFOLIO · CUSTOMER 360 INTELLIGENCE**
+
+[GitHub Profile](https://github.com/sghatge) · [Portfolio](https://sghatge.github.io/adobe-campaign-v8-governance/)
+
+</div>
+
+---
+
 # AEP Customer 360 Intelligence Lab
 
 Hands-on learning project for Adobe Experience Platform (AEP), XDM, identity resolution, Real-Time Customer Profile, Real-Time CDP audiences, consent and Query Service.
