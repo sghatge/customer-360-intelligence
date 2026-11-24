@@ -71,3 +71,36 @@ def test_read_only_sql_rejects_multiple_statements():
         pass
     else:
         raise AssertionError("multiple statements should be rejected")
+
+from aep_engine import validate_against_contract
+
+def test_shared_lifecycle_event_contract_accepts_correlated_ajo_outcome():
+    event = {
+        "eventId":"LCE-CORR-C1-001",
+        "correlationId":"CORR-C1-001",
+        "occurredAt":"2026-11-24T08:00:00Z",
+        "source":"AJO",
+        "eventType":"message_blocked",
+        "customer":{"crmId":"C1"},
+        "journey":{"journeyId":"J1","journeyName":"Cart recovery","step":"channel_decision","channel":"SMS"},
+        "consent":{"sms":"DENIED"},
+        "status":"BLOCKED",
+        "reason":"SMS consent denied"
+    }
+    assert validate_against_contract(event, "contracts/customer-lifecycle-event.json") == []
+
+def test_salesforce_followup_contract_requires_human_approval():
+    request = {
+        "requestId":"SF-CORR-C1-001",
+        "correlationId":"CORR-C1-001",
+        "customer":{"crmId":"C1","recordType":"Contact"},
+        "actionType":"CREATE_TASK",
+        "subject":"Review journey outcome",
+        "priority":"Normal",
+        "status":"PENDING_HUMAN_APPROVAL",
+        "requiresHumanApproval":True,
+        "sourceJourney":"Cart recovery"
+    }
+    assert validate_against_contract(request, "contracts/salesforce-followup-action.json") == []
+    request["requiresHumanApproval"] = False
+    assert validate_against_contract(request, "contracts/salesforce-followup-action.json")
