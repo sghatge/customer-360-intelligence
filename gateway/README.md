@@ -1,30 +1,44 @@
 # Phase 6 — Local Integration Gateway
 
-## Run locally with SQLite
+## Zero-cost local setup
+
+The gateway runs locally with SQLite. No Render service, hosted database, Vercel project or paid account is required.
+
+From the repository root:
+
 ```bash
-pip install -r requirements.txt
+python -m venv .venv
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# macOS/Linux:
+# source .venv/bin/activate
+
+pip install -r gateway/requirements.txt
+```
+
+Set a local API key before starting the gateway.
+
+Windows PowerShell:
+```powershell
+$env:GATEWAY_API_KEY = "replace-with-a-long-random-local-secret"
+uvicorn gateway.app:app --reload --host 127.0.0.1 --port 8000
+```
+
+macOS/Linux:
+```bash
 export GATEWAY_API_KEY="replace-with-a-long-random-local-secret"
-uvicorn gateway.app:app --reload --port 8000
+uvicorn gateway.app:app --reload --host 127.0.0.1 --port 8000
 ```
 
 SQLite is the default and persists data at `gateway/data/gateway.db`. Override the file location with `GATEWAY_DB_PATH`. The database directory is created automatically.
 
-## Configure PostgreSQL
-Set `GATEWAY_DATABASE_URL` to a PostgreSQL connection string. The gateway accepts standard `postgresql://` and `postgres://` URLs and uses the Psycopg 3 driver.
+- Health: http://127.0.0.1:8000/health
+- Interactive API docs: http://127.0.0.1:8000/docs
 
-```bash
-export GATEWAY_DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require"
-export GATEWAY_API_KEY="replace-with-a-long-random-local-secret"
-uvicorn gateway.app:app --host 0.0.0.0 --port 8000
-```
-
-Keep database credentials in the hosting platform's secret manager; never commit them to Git. Use a least-privilege database role and TLS. The application initializes the required tables and indexes on startup. For production, use managed schema migrations rather than relying on application startup DDL.
-
-Health: `GET /health` — returns the active storage type after checking database connectivity.
-
-Interactive API docs: `/docs`
+The health endpoint should return `status: ok` and `storage: sqlite`.
 
 ## Authenticated endpoints
+
 - `POST /v1/events` — validate the shared customer lifecycle event contract, deduplicate by eventId and persist a synthetic event.
 - `GET /v1/events/{correlation_id}` — retrieve accepted events for a journey correlation ID.
 - `POST /v1/crm-actions` — validate and persist a Salesforce action proposal, always in PENDING_HUMAN_APPROVAL.
@@ -35,32 +49,18 @@ Interactive API docs: `/docs`
 
 Send `Authorization: Bearer <GATEWAY_API_KEY>` to all endpoints except health.
 
-## Storage and safety
-SQLite supports local learning and single-instance demonstrations. PostgreSQL is configurable for hosted environments and multi-client persistence. Events, CRM action proposals and audit records are stored in the selected database. CRM proposals are never executed.
+## Safety and limitations
 
-This remains a synthetic proof-of-concept, not a production integration. Retry jobs and dead-letter transitions are persisted, with a bounded attempt count (1–10) and exponential delay (60 seconds, doubling to a one-hour cap). This phase provides queue-state primitives and a failure-recording endpoint for controlled demonstrations; it does not run a background worker or execute downstream delivery. It has no rate limiting, tenant authentication, Adobe connector or Salesforce connector. Do not submit real customer data. Production readiness still requires managed secrets, TLS, OAuth/service identities, least privilege, migrations, observability, backup/restore, privacy review, threat modelling and operational runbooks.
+This is a local synthetic proof-of-concept, not a production integration. CRM proposals are never executed. Retry jobs and dead-letter transitions are persisted, with a bounded attempt count (1–10) and exponential delay (60 seconds, doubling to a one-hour cap). It does not run a background worker or execute downstream delivery. It has no rate limiting, tenant authentication, Adobe connector or Salesforce connector. Do not submit real customer data.
+
+SQLite is suitable for local single-user learning. PostgreSQL can be configured for a separate environment if needed, but hosted infrastructure is deliberately outside this zero-cost setup.
 
 ## Tests
+
+From the repository root:
+
 ```bash
-pytest -q
+pytest -q tests/test_gateway.py tests/test_gateway_postgres.py
 ```
 
-## Deploy to Render (learning environment)
-
-This repository includes a Render Blueprint at the root: `render.yaml`. It provisions a Python web service and a PostgreSQL 16 database in Singapore. The service runs Uvicorn from `gateway/app.py`, exposes `/health` for Render health checks, generates `GATEWAY_API_KEY` in Render, and receives its database connection string through a Blueprint database reference.
-
-### Deploy steps
-
-1. Push the repository's `main` branch to GitHub.
-2. Sign in to Render and choose **New → Blueprint**.
-3. Connect the GitHub repository `sghatge/customer-360-intelligence`.
-4. Review the resources and select **Apply** to provision them.
-5. After the service deploys, open its **Environment** page and copy the generated `GATEWAY_API_KEY` into a secure password manager.
-6. Copy the service's public `onrender.com` URL. Verify `https://YOUR-SERVICE.onrender.com/health` returns `status: ok` and `storage: postgresql`.
-7. In the Streamlit app's Secrets settings, set `GATEWAY_BASE_URL` to that service URL and `GATEWAY_API_KEY` to the generated key. Restart/redeploy the Streamlit app.
-
-### Free-tier warning
-
-The Blueprint currently uses Render Free compute and a Free PostgreSQL database to avoid provisioning paid resources without explicit approval. Render documents that Free web services can spin down when idle and Free Postgres databases expire 30 days after creation. Do not use this configuration for production or real customer data. Before relying on persistent data, upgrade the database to an appropriate paid plan and review backups, access controls, network allow-lists and operational monitoring.
-
-The Blueprint does not connect Adobe or Salesforce tenants. The gateway remains a synthetic integration demonstration; CRM proposals stay pending human approval.
+The PostgreSQL integration tests require a PostgreSQL test database; GitHub Actions provisions one for CI. Local gateway operation does not require PostgreSQL.
