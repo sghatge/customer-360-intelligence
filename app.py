@@ -15,10 +15,10 @@ st.info("Synthetic learning data only. This lab does not connect to an Adobe ten
 with st.sidebar:
     st.header("Learning path")
     st.markdown(
-        "1. **Profile foundation** — inspect customer attributes\\n"
-        "2. **Identity resolution** — review CRM ID, ECID and email\\n"
-        "3. **Data modelling** — explore XDM and validate events\\n"
-        "4. **Audience governance** — apply segment and consent rules\\n"
+        "1. **Profile foundation** — inspect customer attributes\n"
+        "2. **Identity resolution** — review CRM ID, ECID and email\n"
+        "3. **Data modelling** — explore XDM and validate events\n"
+        "4. **Audience governance** — apply segment and consent rules\n"
         "5. **Activation** — inspect the AJO / Salesforce hand-off"
     )
     st.divider()
@@ -92,10 +92,10 @@ with tabs[1]:
     st.graphviz_chart(f'''
     digraph G {{
       rankdir=LR; graph [bgcolor="transparent"]; node [shape=box,style="rounded,filled",fontname="Arial",color="#8CA4C8",fillcolor="#EEF4FF"];
-      crm [label="CRM ID\\n{person['crm_id']}"];
-      ecid [label="ECID\\n{person['ecid']}"];
-      email [label="Email\\n{person['email']}"];
-      profile [label="Unified Profile\\n{person['name']}",fillcolor="#E2F5E9",color="#4A9B68"];
+      crm [label="CRM ID\n{person['crm_id']}"];
+      ecid [label="ECID\n{person['ecid']}"];
+      email [label="Email\n{person['email']}"];
+      profile [label="Unified Profile\n{person['name']}",fillcolor="#E2F5E9",color="#4A9B68"];
       crm -> profile; ecid -> profile; email -> profile;
     }}
     ''')
