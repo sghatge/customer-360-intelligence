@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthetic Customer Profile Contract",
+  "type": "object",
+  "required": ["crmId", "country", "consent"],
+  "properties": {
+    "crmId": {"type": "string", "minLength": 1},
+    "ecid": {"type": ["string", "null"]},
+    "email": {"type": ["string", "null"], "format": "email"},
+    "firstName": {"type": ["string", "null"]},
+    "lastName": {"type": ["string", "null"]},
+    "country": {"type": "string", "minLength": 2, "maxLength": 2},
+    "loyaltyTier": {"enum": ["STANDARD", "SILVER", "GOLD", "PLATINUM", null]},
+    "consent": {
+      "type": "object",
+      "required": ["email", "sms"],
+      "properties": {
+        "email": {"enum": ["GRANTED", "DENIED", "UNKNOWN"]},
+        "sms": {"enum": ["GRANTED", "DENIED", "UNKNOWN"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

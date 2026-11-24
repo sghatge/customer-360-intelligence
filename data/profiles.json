@@ -1,0 +1,4 @@
+[
+  {"crmId":"CRM-1001","ecid":"ECID-9001","email":"alex@example.test","firstName":"Alex","lastName":"Rao","country":"IN","loyaltyTier":"GOLD","consent":{"email":"GRANTED","sms":"DENIED"}},
+  {"crmId":"CRM-1002","ecid":"ECID-9002","email":"maya@example.test","firstName":"Maya","lastName":"Shah","country":"IN","loyaltyTier":"STANDARD","consent":{"email":"UNKNOWN","sms":"GRANTED"}}
+]

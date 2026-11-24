@@ -1,0 +1,2 @@
+{"eventId":"EVT-001","eventType":"addToCart","timestamp":"2026-11-24T08:00:00+05:30","identity":{"crmId":"CRM-1001","ecid":"ECID-9001"},"commerce":{"productId":"SKU-RED-01","cartId":"CART-001","currency":"INR","value":2499.0}}
+{"eventId":"EVT-002","eventType":"productView","timestamp":"2026-11-24T08:02:00+05:30","identity":{"ecid":"ECID-9002"},"commerce":{"productId":"SKU-BLU-02","currency":"INR","value":1499.0}}

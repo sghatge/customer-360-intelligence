@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthetic Experience Event Contract",
+  "type": "object",
+  "required": ["eventId", "eventType", "timestamp", "identity"],
+  "properties": {
+    "eventId": {"type": "string", "minLength": 1},
+    "eventType": {"enum": ["productView", "addToCart", "checkoutStart", "purchase"]},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "identity": {
+      "type": "object",
+      "properties": {
+        "crmId": {"type": "string"},
+        "ecid": {"type": "string"},
+        "email": {"type": "string", "format": "email"}
+      },
+      "minProperties": 1,
+      "additionalProperties": false
+    },
+    "commerce": {
+      "type": "object",
+      "properties": {
+        "productId": {"type": "string"},
+        "cartId": {"type": "string"},
+        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+        "value": {"type": "number", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
