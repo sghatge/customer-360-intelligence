@@ -20,6 +20,32 @@ def validate_against_contract(instance: dict[str, Any], contract_path: str) -> l
     return [f"{'.'.join(str(p) for p in e.absolute_path) or '$'}: {e.message}"
             for e in sorted(validator.iter_errors(instance), key=lambda e: list(map(str, e.absolute_path)))]
 
+def assess_identity_conflicts(profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flag shared ECID or email values across CRM IDs; never auto-merge.
+
+    This is a conservative lab rule, not Adobe Identity Service graph logic.
+    CRM ID remains the record key; ambiguous shared identifiers require review.
+    """
+    conflicts: list[dict[str, Any]] = []
+    for namespace, field in (("ECID", "ecid"), ("EMAIL", "email")):
+        by_value: dict[str, set[str]] = {}
+        for profile in profiles:
+            value = (profile.get(field) or "").strip()
+            crm_id = (profile.get("crmId") or profile.get("crm_id") or "").strip()
+            if value and crm_id:
+                normalized = value.casefold() if namespace == "EMAIL" else value
+                by_value.setdefault(normalized, set()).add(crm_id)
+        for value, crm_ids in sorted(by_value.items()):
+            if len(crm_ids) > 1:
+                conflicts.append({
+                    "namespace": namespace,
+                    "identifier": value,
+                    "crm_ids": sorted(crm_ids),
+                    "status": "REVIEW_REQUIRED",
+                    "action": "DO_NOT_AUTO_MERGE",
+                })
+    return conflicts
+
 def detect_identity_collisions(profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Flag shared email across distinct CRM IDs; never auto-merge."""
     by_email: dict[str, list[dict[str, Any]]] = {}

@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from aep_engine import (validate_against_contract, detect_identity_collisions,
-                        evaluate_audience, apply_entry_exit_rule)
+                        assess_identity_conflicts, evaluate_audience, apply_entry_exit_rule)
 
 def test_event_contract_accepts_valid_event():
     event = {"eventId":"E1","eventType":"addToCart","timestamp":"2026-11-24T08:00:00+05:30",
@@ -33,6 +33,36 @@ def test_same_email_for_same_crm_id_is_not_collision():
     profiles = [{"crmId":"C1","email":"a@example.test"},
                 {"crmId":"C1","email":"a@example.test"}]
     assert detect_identity_collisions(profiles) == []
+
+
+def test_shared_email_across_crm_ids_requires_review_and_never_merges():
+    profiles = [
+        {"crm_id":"C1","email":"shared@example.test","ecid":"X1"},
+        {"crm_id":"C2","email":"SHARED@example.test","ecid":"X2"},
+    ]
+    conflicts = assess_identity_conflicts(profiles)
+    assert len(conflicts) == 1
+    assert conflicts[0]["namespace"] == "EMAIL"
+    assert conflicts[0]["crm_ids"] == ["C1", "C2"]
+    assert conflicts[0]["status"] == "REVIEW_REQUIRED"
+    assert conflicts[0]["action"] == "DO_NOT_AUTO_MERGE"
+
+def test_shared_ecid_across_crm_ids_is_flagged_for_review():
+    profiles = [
+        {"crm_id":"C1","email":"one@example.test","ecid":"X-SHARED"},
+        {"crm_id":"C2","email":"two@example.test","ecid":"X-SHARED"},
+    ]
+    conflicts = assess_identity_conflicts(profiles)
+    assert len(conflicts) == 1
+    assert conflicts[0]["namespace"] == "ECID"
+    assert conflicts[0]["status"] == "REVIEW_REQUIRED"
+
+def test_unique_identifiers_do_not_create_identity_conflicts():
+    profiles = [
+        {"crm_id":"C1","email":"one@example.test","ecid":"X1"},
+        {"crm_id":"C2","email":"two@example.test","ecid":"X2"},
+    ]
+    assert assess_identity_conflicts(profiles) == []
 
 def test_consent_denial_blocks_audience_eligibility():
     profile = {"crmId":"C1","loyaltyTier":"GOLD","lifetimeValue":50000,
