@@ -152,6 +152,10 @@ def run_read_only_sql(query: str, profiles: list[dict[str, Any]],
                       events: list[dict[str, Any]], max_rows: int = 100) -> dict[str, Any]:
     """Execute a single read-only SELECT/WITH query over in-memory synthetic tables."""
     import sqlite3
+    from time import perf_counter
+    started = perf_counter()
+    if max_rows < 1:
+        raise ValueError("max_rows must be at least 1.")
     statement = query.strip()
     if not statement or not statement.lower().startswith(("select", "with")):
         raise ValueError("Only SELECT queries and read-only CTEs are allowed.")
@@ -183,8 +187,24 @@ def run_read_only_sql(query: str, profiles: list[dict[str, Any]],
         rows = rows[:max_rows]
         return {"columns":[d[0] for d in cursor.description or []],
                 "rows":[dict(row) for row in rows],"truncated":truncated,
-                "row_count":len(rows)}
+                "row_count":len(rows), "elapsed_ms": round((perf_counter() - started) * 1000, 3)}
     except sqlite3.Error as exc:
         raise ValueError(f"SQL rejected or invalid: {exc}") from exc
     finally:
         connection.close()
+
+def build_query_insights(result: dict[str, Any]) -> dict[str, Any]:
+    """Summarize a read-only query result without changing its rows."""
+    rows = result.get("rows", [])
+    columns = result.get("columns", [])
+    return {
+        "rows_returned": len(rows),
+        "columns_returned": len(columns),
+        "empty_result": len(rows) == 0,
+        "truncated": bool(result.get("truncated", False)),
+        "null_counts": {
+            column: sum(1 for row in rows if row.get(column) is None)
+            for column in columns
+        },
+    }
+

@@ -7,7 +7,7 @@ import streamlit as st
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'src'))
-from aep_engine import validate_against_contract, detect_identity_collisions, assess_identity_conflicts, evaluate_lab_audience, apply_entry_exit_rule, run_read_only_sql
+from aep_engine import validate_against_contract, detect_identity_collisions, assess_identity_conflicts, evaluate_lab_audience, apply_entry_exit_rule, run_read_only_sql, build_query_insights
 from capstone import build_customer_360_capstone
 
 st.set_page_config(page_title="AEP Customer 360 Lab", page_icon="🧩", layout="wide")
@@ -302,24 +302,49 @@ with tabs[6]:
 
 with tabs[7]:
     st.subheader("Query Service practice workbench")
-    st.caption("A local, read-only SQL simulation over synthetic profiles and events. It is not Adobe Experience Platform Query Service.")
+    st.caption("Read-only SQL learning simulation over synthetic profiles and events. It is not Adobe Experience Platform Query Service.")
     samples = {
         "High-value opted-in profiles": "SELECT crm_id, name, tier, ltv FROM profiles WHERE ltv >= 30000 AND email_ok = 1 ORDER BY ltv DESC",
         "Cart events with customer details": "SELECT e.event_id, e.product, p.name, p.email FROM events e JOIN profiles p ON p.crm_id = e.crm_id WHERE e.event_type = 'add_to_cart'",
         "Event volume by type": "SELECT event_type, COUNT(*) AS event_count FROM events GROUP BY event_type ORDER BY event_count DESC",
-        "Profiles without recent activity": "SELECT crm_id, name, last_seen FROM profiles WHERE last_seen >= 30 ORDER BY last_seen DESC"
+        "Profile distribution by loyalty tier": "SELECT tier, COUNT(*) AS profile_count, ROUND(AVG(ltv), 0) AS average_ltv FROM profiles GROUP BY tier ORDER BY profile_count DESC",
+        "Channel consent audit": "SELECT tier, COUNT(*) AS profiles, SUM(email_ok) AS email_opted_in, SUM(sms_ok) AS sms_opted_in FROM profiles GROUP BY tier ORDER BY tier",
+        "Inactive high-value customers": "SELECT crm_id, name, tier, ltv, last_seen FROM profiles WHERE ltv >= 30000 AND last_seen >= 30 ORDER BY ltv DESC",
     }
     sample_name = st.selectbox("Load a practice query", list(samples.keys()))
-    sql_text = st.text_area("SQL statement", value=samples[sample_name], height=160, key="sql_workbench")
+    sql_text = st.text_area("SQL statement", value=samples[sample_name], height=170, key="sql_workbench")
+    row_limit = st.select_slider("Maximum rows to display", options=[10,25,50,100,250], value=100)
     if st.button("Run read-only query", type="primary", key="run_sql"):
         try:
-            result = run_read_only_sql(sql_text, PROFILES, st.session_state.events)
-            st.success(f"Query completed · {result['row_count']} rows returned" + (" · display capped at 100 rows" if result["truncated"] else ""))
-            st.dataframe(pd.DataFrame(result["rows"], columns=result["columns"]), use_container_width=True, hide_index=True)
+            result = run_read_only_sql(sql_text, PROFILES, st.session_state.events, max_rows=row_limit)
+            insights = build_query_insights(result)
+            st.session_state["last_sql_result"] = result
+            st.session_state["last_sql_insights"] = insights
+            st.success(f"Query completed · {result['row_count']} rows returned · {result['elapsed_ms']} ms" +
+                       (" · result truncated at selected limit" if result["truncated"] else ""))
         except ValueError as exc:
             st.error(str(exc))
+    if "last_sql_result" in st.session_state:
+        result = st.session_state["last_sql_result"]
+        insights = st.session_state["last_sql_insights"]
+        a,b,c,d = st.columns(4)
+        a.metric("Rows returned", insights["rows_returned"])
+        b.metric("Columns", insights["columns_returned"])
+        c.metric("Execution time", f"{result['elapsed_ms']} ms")
+        d.metric("Truncated", "Yes" if insights["truncated"] else "No")
+        if insights["empty_result"]:
+            st.info("The query returned no rows. Review filters, joins and event availability.")
+        st.markdown("**Query results**")
+        result_df = pd.DataFrame(result["rows"], columns=result["columns"])
+        st.dataframe(result_df, use_container_width=True, hide_index=True)
+        st.download_button("Download query results CSV", result_df.to_csv(index=False).encode("utf-8"),
+                           file_name="aep_query_results.csv", mime="text/csv",
+                           disabled=result_df.empty)
+        with st.expander("Result quality — NULL counts"):
+            st.dataframe(pd.DataFrame([{"column":k,"null_count":v} for k,v in insights["null_counts"].items()]),
+                         use_container_width=True, hide_index=True)
     st.markdown("**Query design controls**")
-    st.markdown("- Use explicit time windows and selective predicates in production.\n- Select only required columns; avoid unnecessary wide scans.\n- Validate joins against identity and cardinality assumptions.\n- This simulator uses SQLite in memory; SQL syntax and performance are not identical to Adobe Query Service.")
+    st.markdown("- Use explicit time windows and selective predicates in production.\n- Select only required columns; avoid unnecessary wide scans.\n- Validate joins against identity and cardinality assumptions.\n- Review NULLs and empty results before using outputs downstream.\n- This simulator uses SQLite in memory; SQL syntax and performance are not identical to Adobe Query Service.")
 
 with tabs[8]:
     st.subheader("AEP audience → AJO journey hand-off")

@@ -106,7 +106,7 @@ def test_membership_entry_and_exit_transitions():
     assert apply_entry_exit_rule(True, True) == "REMAIN"
     assert apply_entry_exit_rule(False, False) == "NOT_IN_AUDIENCE"
 
-from aep_engine import run_read_only_sql
+from aep_engine import run_read_only_sql, build_query_insights
 
 def test_read_only_sql_returns_synthetic_profile_rows():
     profiles = [{"crm_id":"C1","name":"A","email":"a@example.test","ecid":"X1","tier":"GOLD","ltv":50000,"email_ok":1,"sms_ok":0,"last_seen":2}]
@@ -162,3 +162,32 @@ def test_salesforce_followup_contract_requires_human_approval():
     assert validate_against_contract(request, "contracts/salesforce-followup-action.json") == []
     request["requiresHumanApproval"] = False
     assert validate_against_contract(request, "contracts/salesforce-followup-action.json")
+
+
+def test_query_result_insights_report_rows_columns_and_nulls():
+    result = {
+        "columns":["crm_id","email"],
+        "rows":[{"crm_id":"C1","email":"a@example.test"},{"crm_id":"C2","email":None}],
+        "truncated":False,
+        "row_count":2,
+    }
+    insights = build_query_insights(result)
+    assert insights["rows_returned"] == 2
+    assert insights["columns_returned"] == 2
+    assert insights["null_counts"] == {"crm_id":0,"email":1}
+    assert insights["empty_result"] is False
+
+def test_query_result_insights_identify_empty_and_truncated_results():
+    insights = build_query_insights({"columns":["crm_id"],"rows":[],"truncated":True})
+    assert insights["empty_result"] is True
+    assert insights["truncated"] is True
+    assert insights["rows_returned"] == 0
+
+def test_read_only_sql_rejects_invalid_row_limit():
+    try:
+        run_read_only_sql("SELECT 1", [], [], max_rows=0)
+    except ValueError as exc:
+        assert "at least 1" in str(exc)
+    else:
+        raise AssertionError("Invalid row limit should be rejected")
+
