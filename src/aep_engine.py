@@ -66,3 +66,44 @@ def apply_entry_exit_rule(previously_in: bool, current_eligible: bool) -> str:
     if previously_in and not current_eligible:
         return "EXIT"
     return "REMAIN" if current_eligible else "NOT_IN_AUDIENCE"
+
+def run_read_only_sql(query: str, profiles: list[dict[str, Any]],
+                      events: list[dict[str, Any]], max_rows: int = 100) -> dict[str, Any]:
+    """Execute a single read-only SELECT/WITH query over in-memory synthetic tables."""
+    import sqlite3
+    statement = query.strip()
+    if not statement or not statement.lower().startswith(("select", "with")):
+        raise ValueError("Only SELECT queries and read-only CTEs are allowed.")
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    try:
+        pcols = ["crm_id","name","email","ecid","tier","ltv","email_ok","sms_ok","last_seen"]
+        ecols = ["event_id","crm_id","ecid","event_type","product","event_time"]
+        connection.execute("CREATE TABLE profiles (crm_id TEXT, name TEXT, email TEXT, ecid TEXT, tier TEXT, ltv REAL, email_ok INTEGER, sms_ok INTEGER, last_seen INTEGER)")
+        connection.execute("CREATE TABLE events (event_id TEXT, crm_id TEXT, ecid TEXT, event_type TEXT, product TEXT, event_time TEXT)")
+        connection.executemany(
+            "INSERT INTO profiles VALUES (?,?,?,?,?,?,?,?,?)",
+            [tuple(int(p.get(k, 0)) if k in {"email_ok","sms_ok"} else p.get(k) for k in pcols) for p in profiles]
+        )
+        connection.executemany(
+            "INSERT INTO events VALUES (?,?,?,?,?,?)",
+            [tuple(e.get(k) for k in ecols) for e in events]
+        )
+        allowed = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION}
+        if hasattr(sqlite3, "SQLITE_RECURSIVE"):
+            allowed.add(sqlite3.SQLITE_RECURSIVE)
+        def authorize(action, arg1, arg2, database, trigger):
+            return sqlite3.SQLITE_OK if action in allowed else sqlite3.SQLITE_DENY
+        connection.set_authorizer(authorize)
+        connection.set_progress_handler(lambda: 1, 100000)
+        cursor = connection.execute(statement)
+        rows = cursor.fetchmany(max_rows + 1)
+        truncated = len(rows) > max_rows
+        rows = rows[:max_rows]
+        return {"columns":[d[0] for d in cursor.description or []],
+                "rows":[dict(row) for row in rows],"truncated":truncated,
+                "row_count":len(rows)}
+    except sqlite3.Error as exc:
+        raise ValueError(f"SQL rejected or invalid: {exc}") from exc
+    finally:
+        connection.close()
