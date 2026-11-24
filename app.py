@@ -66,6 +66,22 @@ c2.metric("Experience events",len(st.session_state.events))
 c3.metric("Identity namespaces",3)
 c4.metric("Lab ingestions",len(st.session_state.ingest_log))
 
+st.subheader("Customer lifecycle architecture")
+st.graphviz_chart("""
+digraph lifecycle {
+  rankdir=LR; graph [bgcolor="transparent",pad="0.2",nodesep="0.35",ranksep="0.55"];
+  node [shape=box,style="rounded,filled",fontname="Arial",fontsize=11,color="#7892b5",fillcolor="#edf4ff",margin="0.16,0.10"];
+  edge [color="#64748b",penwidth=1.6,arrowsize=0.8];
+  sources [label="Web / App / CRM\nEvents + attributes"];
+  aep [label="AEP · Customer 360\nXDM + identity + consent",fillcolor="#dceafe",color="#3977c8"];
+  ajo [label="AJO · Orchestration\nJourney + decision + channel",fillcolor="#e8e1ff",color="#7554c7"];
+  sf [label="Salesforce · CRM\nSales + service follow-up",fillcolor="#dcf5e8",color="#29945b"];
+  feedback [label="Outcome feedback\nConversion + service signals"];
+  sources -> aep -> ajo -> sf -> feedback -> aep;
+}
+""")
+st.caption("Conceptual enterprise flow. The three public labs exchange synthetic contract previews only; no live tenant integration is configured.")
+
 tabs = st.tabs(["Profile explorer","Identity graph","Audience builder","XDM schema explorer","Event ingestion lab","Activation preview","Enterprise rule engine","Query Service SQL lab","AJO journey preview","Lifecycle integration hub","Gateway operations","Customer 360 Capstone"])
 with tabs[0]:
     selected = st.selectbox("Choose a customer",PROFILES,format_func=lambda p:f"{p['name']} · {p['crm_id']}")
