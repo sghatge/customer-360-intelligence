@@ -6,7 +6,7 @@ import json
 import os
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -59,6 +59,14 @@ def init_db() -> None:
             audit_id TEXT PRIMARY KEY, occurred_at TEXT NOT NULL,
             action TEXT NOT NULL, correlation_id TEXT NOT NULL,
             status TEXT NOT NULL, detail TEXT NOT NULL)""",
+        """CREATE TABLE IF NOT EXISTS retry_jobs (
+            job_id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL,
+            task_type TEXT NOT NULL, payload TEXT NOT NULL,
+            status TEXT NOT NULL, attempts INTEGER NOT NULL,
+            max_attempts INTEGER NOT NULL, next_attempt_at TEXT,
+            last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS idx_retry_due ON retry_jobs(status, next_attempt_at)",
+        "CREATE INDEX IF NOT EXISTS idx_retry_correlation ON retry_jobs(correlation_id)",
     ]
     with connect() as conn:
         for statement in statements:
@@ -153,6 +161,70 @@ def propose_crm_action(payload: dict[str, Any]) -> dict[str, Any]:
     audit("CRM_ACTION", correlation_id, "PENDING_HUMAN_APPROVAL", request_id)
     return {"status": "PENDING_HUMAN_APPROVAL", "requestId": request_id,
             "correlationId": correlation_id, "executed": False}
+
+
+@app.post("/v1/retries", dependencies=[Depends(require_api_key)])
+def enqueue_retry(payload: dict[str, Any]) -> dict[str, Any]:
+    required = {"correlationId", "taskType", "payload"}
+    if not required.issubset(payload) or not isinstance(payload.get("payload"), dict):
+        raise HTTPException(status_code=422, detail="correlationId, taskType and object payload are required")
+    max_attempts = payload.get("maxAttempts", 3)
+    if not isinstance(max_attempts, int) or isinstance(max_attempts, bool) or not 1 <= max_attempts <= 10:
+        raise HTTPException(status_code=422, detail="maxAttempts must be an integer between 1 and 10")
+    now = datetime.now(timezone.utc).isoformat()
+    job_id = str(uuid.uuid4())
+    with connect() as conn:
+        conn.execute(text("""INSERT INTO retry_jobs
+            (job_id, correlation_id, task_type, payload, status, attempts, max_attempts,
+             next_attempt_at, last_error, created_at, updated_at)
+            VALUES (:id, :correlation, :task, :payload, 'PENDING', 0, :maximum,
+                    :next_at, NULL, :created, :updated)"""),
+            {"id": job_id, "correlation": payload["correlationId"], "task": payload["taskType"],
+             "payload": json.dumps(payload["payload"]), "maximum": max_attempts,
+             "next_at": now, "created": now, "updated": now})
+    audit("RETRY_ENQUEUE", payload["correlationId"], "PENDING", job_id)
+    return {"jobId": job_id, "status": "PENDING", "attempts": 0, "maxAttempts": max_attempts}
+
+@app.get("/v1/retries", dependencies=[Depends(require_api_key)])
+def list_retries(status: str | None = None, limit: int = 100) -> dict[str, Any]:
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 500")
+    if status and status not in {"PENDING", "RETRY_SCHEDULED", "DEAD_LETTER"}:
+        raise HTTPException(status_code=422, detail="Invalid retry status")
+    query = "SELECT * FROM retry_jobs"
+    params: dict[str, Any] = {"limit": limit}
+    if status:
+        query += " WHERE status=:status"
+        params["status"] = status
+    query += " ORDER BY created_at DESC LIMIT :limit"
+    with connect() as conn:
+        rows = conn.execute(text(query), params).mappings().all()
+    jobs = [dict(row) | {"payload": json.loads(row["payload"])} for row in rows]
+    return {"count": len(jobs), "jobs": jobs}
+
+@app.post("/v1/retries/{job_id}/fail", dependencies=[Depends(require_api_key)])
+def record_retry_failure(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    error = payload.get("error")
+    if not isinstance(error, str) or not error.strip():
+        raise HTTPException(status_code=422, detail="A non-empty error is required")
+    with connect() as conn:
+        row = conn.execute(text("SELECT * FROM retry_jobs WHERE job_id=:id"), {"id": job_id}).mappings().first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Retry job not found")
+        if row["status"] == "DEAD_LETTER":
+            raise HTTPException(status_code=409, detail="Job is already in the dead-letter queue")
+        attempts = row["attempts"] + 1
+        now = datetime.now(timezone.utc)
+        dead = attempts >= row["max_attempts"]
+        next_at = None if dead else (now + timedelta(seconds=min(3600, 60 * (2 ** (attempts - 1))))).isoformat()
+        status = "DEAD_LETTER" if dead else "RETRY_SCHEDULED"
+        conn.execute(text("""UPDATE retry_jobs SET attempts=:attempts, status=:status,
+            next_attempt_at=:next_at, last_error=:error, updated_at=:updated WHERE job_id=:id"""),
+            {"attempts": attempts, "status": status, "next_at": next_at,
+             "error": error.strip()[:2000], "updated": now.isoformat(), "id": job_id})
+    audit("RETRY_FAILURE", row["correlation_id"], status, f"{job_id}: attempt {attempts}")
+    return {"jobId": job_id, "status": status, "attempts": attempts,
+            "maxAttempts": row["max_attempts"], "nextAttemptAt": next_at}
 
 @app.get("/v1/audit", dependencies=[Depends(require_api_key)])
 def get_audit(limit: int = 100) -> dict[str, Any]:
