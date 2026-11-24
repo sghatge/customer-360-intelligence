@@ -23,6 +23,8 @@ Build a trustworthy unified customer profile from CRM, web and commerce signals,
 - `data/` — synthetic sample records only
 - `src/` — local validation utilities
 - `tests/` — deterministic checks
+- `sql/` — read-only learning queries
+- `docs/phase-4-query-service-ajo-simulation.md` — Query Service and journey hand-off guide
 - `ROADMAP.md` — 8-week plan at 6–8 hours/week
 
 ## Quick start
@@ -36,7 +38,10 @@ python src/validate_event.py data/events.jsonl
 ```
 
 ## Learning sequence
-XDM concepts → profile and identity design → event ingestion contracts → consent → segment logic → Query Service concepts and cost controls → activation readiness.
+XDM concepts → profile and identity design → event ingestion contracts → consent → segment logic → Query Service concepts and cost controls → AJO journey hand-off simulation → activation readiness.
+
+## Query Service and AJO simulation
+The Streamlit lab includes a local read-only SQL workbench over synthetic data and a conceptual AEP-to-AJO journey preview. These are learning simulations, not Adobe service connections. See `docs/phase-4-query-service-ajo-simulation.md`.
 
 ## Data safety
 Never commit client data, production exports, credentials, access tokens or identifiable customer records. Use synthetic examples only. Keep secrets in environment variables and `.env` must remain ignored.
