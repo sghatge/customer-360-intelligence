@@ -27,6 +27,7 @@ def clean_database():
     engine = create_engine(gateway.database_url())
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM audit"))
+        conn.execute(text("DELETE FROM retry_jobs"))
         conn.execute(text("DELETE FROM crm_actions"))
         conn.execute(text("DELETE FROM events"))
     yield
@@ -55,3 +56,14 @@ def test_postgres_event_persistence_idempotency_and_audit():
     assert duplicate.json()["status"] == "DUPLICATE_IGNORED"
     assert lookup.json()["count"] == 1
     assert any(row["status"] == "ACCEPTED" for row in audit.json()["records"])
+
+def test_postgres_retry_queue_and_dead_letter():
+    created = client.post("/v1/retries", json={
+        "correlationId": "PG-RETRY-1", "taskType": "AJO_OUTCOME_FORWARD",
+        "payload": {"outcome": "FAILED"}, "maxAttempts": 1
+    }, headers=HEADERS).json()
+    failed = client.post(f"/v1/retries/{created['jobId']}/fail",
+                         json={"error": "downstream unavailable"}, headers=HEADERS).json()
+    assert failed["status"] == "DEAD_LETTER"
+    rows = client.get("/v1/retries?status=DEAD_LETTER", headers=HEADERS).json()
+    assert rows["count"] == 1
