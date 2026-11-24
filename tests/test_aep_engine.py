@@ -47,3 +47,27 @@ def test_membership_entry_and_exit_transitions():
     assert apply_entry_exit_rule(True, False) == "EXIT"
     assert apply_entry_exit_rule(True, True) == "REMAIN"
     assert apply_entry_exit_rule(False, False) == "NOT_IN_AUDIENCE"
+
+from aep_engine import run_read_only_sql
+
+def test_read_only_sql_returns_synthetic_profile_rows():
+    profiles = [{"crm_id":"C1","name":"A","email":"a@example.test","ecid":"X1","tier":"GOLD","ltv":50000,"email_ok":1,"sms_ok":0,"last_seen":2}]
+    result = run_read_only_sql("SELECT crm_id, tier FROM profiles WHERE ltv > 10000", profiles, [])
+    assert result["row_count"] == 1
+    assert result["rows"][0]["tier"] == "GOLD"
+
+def test_read_only_sql_rejects_delete():
+    try:
+        run_read_only_sql("DELETE FROM profiles", [], [])
+    except ValueError as exc:
+        assert "Only SELECT" in str(exc)
+    else:
+        raise AssertionError("DELETE should be rejected")
+
+def test_read_only_sql_rejects_multiple_statements():
+    try:
+        run_read_only_sql("SELECT 1; SELECT 2", [], [])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("multiple statements should be rejected")
